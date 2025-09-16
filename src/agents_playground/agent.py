@@ -112,34 +112,16 @@ class BaseAgent:
 
             # Add core nodes
             workflow.add_node("process_input", self._process_input_node)
-
-            # Add custom tool nodes
-            for tool_name, tool_info in self.tools.items():
-                workflow.add_node(tool_name, tool_info["func"])
-
+            workflow.add_node("tool_executor", self._tool_executor_node)
             workflow.add_node("generate_response", self._generate_response_node)
             workflow.add_node("finalize", self._finalize_node)
 
             # Set entry point
             workflow.set_entry_point("process_input")
 
-            # Build edges - tools run after input processing but before response generation
-            if self.tools:
-                # Connect input to first tool
-                first_tool = list(self.tools.keys())[0]
-                workflow.add_edge("process_input", first_tool)
-
-                # Chain tools together
-                tool_names = list(self.tools.keys())
-                for i in range(len(tool_names) - 1):
-                    workflow.add_edge(tool_names[i], tool_names[i + 1])
-
-                # Connect last tool to response generation
-                workflow.add_edge(tool_names[-1], "generate_response")
-            else:
-                # Direct connection if no tools
-                workflow.add_edge("process_input", "generate_response")
-
+            # Connect nodes in sequence
+            workflow.add_edge("process_input", "tool_executor")
+            workflow.add_edge("tool_executor", "generate_response")
             workflow.add_edge("generate_response", "finalize")
             workflow.add_edge("finalize", END)
 
@@ -154,6 +136,60 @@ class BaseAgent:
         state.processing_step = "processing_input"
         state.metadata["timestamp"] = "processing_input"
         state.metadata["tools_available"] = list(self.tools.keys())
+        return state
+
+    def _tool_executor_node(self, state: AgentState) -> AgentState:
+        """Execute only relevant tools based on user input analysis."""
+        state.processing_step = "executing_tools"
+        
+        # Extract user message for analysis
+        user_message = ""
+        if state.messages:
+            last_message = state.messages[-1]
+            if hasattr(last_message, 'content'):
+                user_message = last_message.content.lower()
+        
+        # Define tool keywords for AWS cost tools
+        tool_keywords = {
+            "get_last_month_costs": ["last month", "previous month", "past month", "last month cost", "previous cost"],
+            "get_current_month_costs": ["current month", "this month", "current cost", "month to date", "mtd"]
+        }
+        
+        # Execute only relevant tools
+        executed_tools = []
+        if not state.metadata.get("tool_results"):
+            state.metadata["tool_results"] = []
+            
+        # First pass: check for specific tool keywords
+        specific_matches = []
+        for tool_name, tool_info in self.tools.items():
+            keywords = tool_keywords.get(tool_name, [])
+            if keywords and any(keyword in user_message for keyword in keywords):
+                specific_matches.append(tool_name)
+        
+        # If specific matches found, execute only those
+        tools_to_execute = specific_matches if specific_matches else []
+        
+        # If no specific matches and user mentions general cost terms, execute all cost tools
+        if not specific_matches and any(word in user_message for word in ["cost", "costs", "aws", "billing", "expense"]):
+            tools_to_execute = list(self.tools.keys())
+        
+        for tool_name, tool_info in self.tools.items():
+            should_execute = tool_name in tools_to_execute
+                
+            if should_execute:
+                try:
+                    # Execute the tool
+                    result_state = tool_info["func"](state)
+                    executed_tools.append(tool_name)
+                    # Update state with results from the tool
+                    if hasattr(result_state, 'metadata') and "tool_results" in result_state.metadata:
+                        state.metadata["tool_results"] = result_state.metadata["tool_results"]
+                except Exception as e:
+                    error_msg = f"Error executing {tool_name}: {str(e)}"
+                    state.metadata["tool_results"].append(error_msg)
+        
+        state.metadata["executed_tools"] = executed_tools
         return state
 
     def _generate_response_node(self, state: AgentState) -> AgentState:
