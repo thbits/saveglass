@@ -1,0 +1,67 @@
+page_config:
+  page_title: "AI Agents Playground"
+  page_icon: "🤖"
+  layout: "wide"
+  initial_sidebar_state: "expanded"
+
+theme:
+  primary_color: "#2196f3"
+  secondary_color: "#9c27b0"
+  background_color: "#ffffff"
+  text_color: "#000000"
+
+chat_styling:
+  user_message:
+    background_color: "#e3f2fd"
+    border_color: "#2196f3"
+    border_width: "4px"
+  assistant_message:
+    background_color: "#f3e5f5"
+    border_color: "#9c27b0"
+    border_width: "4px"
+  message_padding: "1rem"
+  message_border_radius: "0.5rem"
+  message_margin_bottom: "1rem"
+  input_border_radius: "20px"
+
+sidebar:
+  title: "🔧 Configuration"
+  sections:
+    agent_settings:
+      title: "Agent Settings"
+      show_model_selector: true
+      show_temperature_slider: true
+      show_max_tokens_input: true
+    provider_settings:
+      title: "Provider Settings"
+      show_provider_selector: true
+      show_api_status: true
+    chat_controls:
+      show_clear_button: true
+      clear_button_text: "Clear Chat History"
+      update_button_text: "Update Agent Config"
+
+messages:
+  welcome_message: "Welcome to the AI Agents Playground! Ask questions, request data analysis, or generate plots."
+  thinking_spinner: "Thinking..."
+  error_prefix: "Error: "
+  success_config_update: "Agent configuration updated!"
+  warning_no_credentials: "API credentials not configured. Please set the appropriate environment variables."
+
+input_placeholder: "Ask me anything... (try: 'generate a sales chart' or 'analyze data trends')"
+
+example_questions:
+  enabled: true
+  title: "💡 Example Questions"
+  questions:
+    - text: "Which service cost me the most last month?"
+      description: "Analyses customer data to identify the most expensive service"
+    - text: "Analyze customer data trends"  
+      description: "Provides insights on customer behavior patterns"
+    - text: "What are the key benefits of AI in business?"
+      description: "Discusses AI applications in business contexts"
+
+visualization:
+  chart_keywords: ["chart", "plot", "graph", "visualiz"]
+  use_container_width: true
+  default_theme: "plotly"

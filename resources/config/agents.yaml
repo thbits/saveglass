@@ -1,0 +1,33 @@
+default_provider: openai
+
+providers:
+  openai:
+    model_name: "gpt-3.5-turbo"
+    temperature: 0.7
+    max_tokens: 1000
+    api_key_env: "OPENAI_API_KEY"
+    
+  bedrock:
+    model_name: "anthropic.claude-3-sonnet-20240229-v1:0"
+    temperature: 0.7
+    max_tokens: 1000
+    region: "us-east-1"
+    aws_access_key_env: "AWS_ACCESS_KEY_ID"
+    aws_secret_key_env: "AWS_SECRET_ACCESS_KEY"
+    aws_region_env: "AWS_REGION"
+
+# Available models per provider
+available_models:
+  openai:
+    - "gpt-3.5-turbo"
+    - "gpt-4"
+    - "gpt-4-turbo-preview"
+  bedrock:
+    - "anthropic.claude-3-sonnet-20240229-v1:0"
+    - "anthropic.claude-3-haiku-20240307-v1:0"
+
+# Agent behavior settings
+agent_settings:
+  conversation_history_limit: 10
+  enable_streaming: true
+  enable_function_calling: true

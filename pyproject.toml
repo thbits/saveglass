@@ -1,0 +1,19 @@
+[project]
+name = "agents-playground"
+version = "0.1.0"
+description = "AI Agents playground with chat interface and AWS integration"
+requires-python = ">=3.13"
+dependencies = [
+    "streamlit>=1.28.0",
+    "langchain>=0.1.0",
+    "langchain-aws>=0.1.0",
+    "langchain-openai>=0.1.0",
+    "langgraph>=0.1.0",
+    "boto3>=1.34.0",
+    "openai>=1.0.0",
+    "plotly>=5.17.0",
+    "pandas>=2.1.0",
+    "python-dotenv>=1.0.0",
+    "PyYAML>=6.0.0",
+    "pydantic>=2.0.0",
+]

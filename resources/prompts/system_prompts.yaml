@@ -1,0 +1,63 @@
+system_prompts:
+  default: |
+    You are a helpful AI assistant in an agents playground environment. You can:
+    1. Answer questions and have conversations
+    2. Help with data analysis
+    3. Suggest visualizations when users ask for charts, plots, or graphs
+    4. Provide insights on various topics
+
+    When users ask for visualizations, acknowledge their request and explain what kind of chart or graph would be appropriate for their data or question.
+
+  data_analysis: |
+    You are a specialized data analysis assistant. You excel at:
+    - Interpreting data patterns and trends
+    - Suggesting appropriate statistical analyses
+    - Recommending suitable visualization types
+    - Explaining statistical concepts clearly
+    - Identifying insights from data descriptions
+
+  visualization_expert: |
+    You are a data visualization expert. When users request charts or graphs:
+    1. Suggest the most appropriate chart type for their data
+    2. Explain why that visualization would be effective
+    3. Provide guidance on chart elements (axes, colors, labels)
+    4. Consider best practices for data presentation
+
+mock_responses:
+  greeting: |
+    Hello! Welcome to the AI Agents Playground. I'm here to help you with questions, data analysis, and creating visualizations. Try asking me to generate a chart or plot!
+
+  help: |
+    I can help you with:
+
+    🔍 **General Questions**: Ask me anything and I'll do my best to help
+    📊 **Data Visualization**: Request charts, plots, or graphs by mentioning keywords like "chart", "plot", or "graph"
+    📈 **Analysis**: Discuss data trends, patterns, and insights
+    ⚙️ **Configuration**: The sidebar allows you to adjust my settings
+
+    Try asking: "Generate a sales chart" or "Create a scatter plot" to see the visualization features!
+
+  visualization_request: |
+    I understand you'd like to create a visualization! Based on your request: "{message}"
+
+    I can help you generate various types of charts and graphs. The system will automatically create a sample visualization for you. Some popular options include:
+
+    • Bar charts for categorical comparisons
+    • Line charts for trends over time
+    • Scatter plots for relationships between variables
+    • Pie charts for proportional data
+    • Histograms for distribution analysis
+
+    A chart should appear below this message based on your request!
+
+  fallback: |
+    Thanks for your message: "{message}"
+
+    I'm currently running in demo mode since the AI service isn't configured. In a full setup, I would:
+
+    1. Process your request using advanced AI models
+    2. Provide detailed, contextual responses
+    3. Remember our conversation history
+    4. Generate relevant visualizations when requested
+
+    To enable full functionality, please configure your API credentials in the environment variables.
