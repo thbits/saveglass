@@ -4,18 +4,56 @@
     margin-bottom: 1rem; 
     display: flex;
     flex-direction: column;
+    transition: all 0.3s ease;
 }
 
+/* Chat message styles that work with Streamlit theming */
 .user-message {
-    background-color: #e3f2fd;
-    border-left: 4px solid #2196f3;
+    background-color: var(--secondary-background-color, #F8F7FF);
+    border-left: 4px solid var(--primary-color, #251B9C);
+    color: var(--text-color, #2D2D2D);
 }
 
 .assistant-message {
-    background-color: #f3e5f5;
-    border-left: 4px solid #9c27b0;
+    background-color: rgba(199, 194, 255, 0.3);
+    border-left: 4px solid #7059FF;
+    color: var(--text-color, #2D2D2D);
 }
 
 .stTextInput > div > div > input {
     border-radius: 20px;
+}
+
+/* Logo styling */
+.glassbox-logo {
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.glassbox-logo svg {
+    width: 100%;
+    height: 100%;
+}
+
+/* Header logo container styling */
+.logo-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.logo-header h1 {
+    margin: 0;
+    font-size: 3rem;
+    font-weight: 600;
+    line-height: 1;
+}
+
+/* Theme transition effects */
+* {
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }

@@ -1,0 +1,24 @@
+[theme]
+# Base theme (will be dynamically overridden)
+base = "light"
+
+# Primary color - Glassbox brand purple
+primaryColor = "#251B9C"
+
+# Light theme colors
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F8F7FF"
+textColor = "#2D2D2D"
+
+# Additional theming
+font = "sans serif"
+borderColor = "#E0E0E0"
+
+[theme.dark]
+# Dark theme variant
+base = "dark"
+primaryColor = "#7059FF"
+backgroundColor = "#1E1E1E"
+secondaryBackgroundColor = "#2D2B4A"
+textColor = "#E0E0E0"
+borderColor = "#4A4A4A"

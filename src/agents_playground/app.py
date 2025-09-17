@@ -28,8 +28,8 @@ load_dotenv()
 
 # Configure Streamlit page
 st.set_page_config(
-    page_title="AI Agents Playground",
-    page_icon="💰",
+    page_title="SaveGlass",
+    page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -234,7 +234,6 @@ def main():
     
     # Sidebar for configuration
     with st.sidebar:
-        st.title("🔧 Configuration")
         
         # Chat Sessions History
         st.subheader("💬 Chat Sessions")
@@ -356,10 +355,56 @@ def main():
                 st.success("✅ AWS credentials configured")
             else:
                 st.warning("⚠️ AWS credentials not configured. Using default profile if available.")
+        
+        st.divider()
+        
+        # Theme toggle at the bottom
+        st.subheader("🎨 Theme")
+        
+        # Initialize theme in session state
+        if "theme_mode" not in st.session_state:
+            st.session_state.theme_mode = "light"
+        
+        # Theme toggle button with emoji
+        current_theme = st.session_state.theme_mode
+        button_emoji = "🌙" if current_theme == "light" else "☀️"
+        button_text = f"{button_emoji} Switch to {'Dark' if current_theme == 'light' else 'Light'} Mode"
+        
+        if st.button(button_text, help="Toggle between light and dark themes", key="theme_toggle_button", use_container_width=True):
+            if current_theme == "light":
+                # Switch to dark theme using Glassbox dark colors
+                st._config.set_option("theme.base", "dark")
+                st._config.set_option("theme.backgroundColor", "#1E1E1E")
+                st._config.set_option("theme.primaryColor", "#7059FF")
+                st._config.set_option("theme.secondaryBackgroundColor", "#2D2B4A")
+                st._config.set_option("theme.textColor", "#E0E0E0")
+                st.session_state.theme_mode = "dark"
+            else:
+                # Switch to light theme using Glassbox light colors
+                st._config.set_option("theme.base", "light")
+                st._config.set_option("theme.backgroundColor", "#FFFFFF")
+                st._config.set_option("theme.primaryColor", "#251B9C")
+                st._config.set_option("theme.secondaryBackgroundColor", "#F8F7FF")
+                st._config.set_option("theme.textColor", "#2D2D2D")
+                st.session_state.theme_mode = "light"
+            
+            st.rerun()
+        
+        # Display current theme
+        st.caption(f"Current theme: {current_theme.title()}")
     
-    # Main chat interface
-    st.title("🤖 AI Agents Playground")
-    st.markdown("Welcome to the AI Agents Playground! Ask questions, request data analysis, or generate plots.")
+    # Main chat interface with logo
+    # Create a container for the logo and title with better spacing
+    logo_path = os.path.join(os.path.dirname(__file__), "../../resources/ui/glassbox-logo.svg")
+    if os.path.exists(logo_path):
+        with open(logo_path, "r") as f:
+            logo_svg = f.read()
+        # Display logo and title in a single line with better alignment
+        st.markdown(f'''<div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px;"><div style="width: 50px; height: 50px; flex-shrink: 0;">{logo_svg}</div><h1 style="margin: 0; font-size: 3rem; font-weight: 600; color: inherit;">SaveGlass</h1></div>''', unsafe_allow_html=True)
+    else:
+        st.title("🔍 SaveGlass")
+    
+    st.markdown("Welcome to SaveGlass! Ask questions about your AWS costs, request data analysis, or generate plots.")
     
     # Display example questions
     try:
@@ -531,7 +576,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        agent_logger.info("Starting AI Agents Playground application")
+        agent_logger.info("Starting SaveGlass application")
         main()
     except Exception as e:
         agent_logger.log_error(e, {
