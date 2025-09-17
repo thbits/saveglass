@@ -17,6 +17,11 @@ services:
       - ./resources:/app/resources:ro
       # Mount .env file for environment variable loading
       - ./.env:/app/.env:ro
+      # Mount authentication and session storage directories for persistence
+      - ./.auth:/app/.auth
+      - ./.sessions:/app/.sessions
+      # Mount scripts directory for user setup
+      - ./scripts:/app/scripts:ro
     environment:
       # OpenAI Configuration (set in your .env file)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}

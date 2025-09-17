@@ -10,6 +10,10 @@ A modern AI agents platform with a customizable chat interface, AWS Bedrock inte
 - 🐳 **Docker Support**: Easy deployment with hot reloading
 - 🎨 **Customizable UI**: Modern Streamlit interface
 - 📈 **Multiple Chart Types**: Bar, line, scatter, pie, and histogram charts
+- 🔐 **User Authentication**: Secure login system with role-based permissions
+- 👥 **User Management**: Multi-level access control (Admin, Power User, User, Guest)
+- 🛠️ **Admin Panel**: Complete user and session management interface
+- 🔒 **Permission-Based Access**: Feature access based on user roles and permissions
 
 ## Quick Start
 
@@ -47,6 +51,14 @@ docker-compose up -d --build
 ### 4. Access the Application
 
 Open your browser and navigate to: `http://localhost:8501`
+
+### 5. Login with Default Admin Account
+
+**Default Credentials:**
+- Username: `admin`
+- Password: `admin123`
+
+⚠️ **Important:** Change the default admin password immediately in production!
 
 ## Configuration
 
@@ -93,6 +105,67 @@ Request charts using keywords like:
 3. **Scatter Plots**: For correlation analysis
 4. **Pie Charts**: For proportional data
 5. **Histograms**: For distribution analysis
+
+## User Management
+
+### User Roles & Permissions
+
+The application supports four user roles with different permission levels:
+
+#### **Admin**
+- ✅ Full access to all features
+- ✅ Can access AWS cost analysis tools
+- ✅ Can change LLM configurations
+- ✅ Can view system information and logs
+- ✅ Can export chat sessions
+- ✅ Can manage other users
+- ✅ 50 messages per session, 1000 daily requests
+- ✅ Access to all prompt types
+
+#### **Power User**
+- ✅ Can access AWS cost analysis tools
+- ✅ Can change LLM configurations
+- ✅ Can export chat sessions
+- ❌ Cannot manage users or view system info
+- ✅ 30 messages per session, 500 daily requests
+- ✅ Access to basic, advanced, and AWS analysis prompts
+
+#### **User**
+- ❌ Limited access to basic chat functionality
+- ❌ Cannot access AWS tools or change configurations
+- ❌ Cannot export sessions or view system info
+- ✅ 20 messages per session, 200 daily requests
+- ✅ Access to basic prompts only
+
+#### **Guest**
+- ❌ Very limited access
+- ❌ Basic chat only with strict limits
+- ✅ 5 messages per session, 20 daily requests
+- ✅ Access to basic prompts only
+
+### Admin Panel
+
+Admins can access a comprehensive admin panel to:
+
+- **Manage Users**: View, create, activate/deactivate, and change user roles
+- **Monitor Sessions**: View active sessions and cleanup expired ones
+- **System Information**: View user statistics, role distribution, and storage info
+- **User Activity**: Monitor recent login activity and user behavior
+
+To access the admin panel:
+```bash
+streamlit run src/agents_playground/admin_panel.py --server.port 8502
+```
+
+Then visit: `http://localhost:8502`
+
+### Authentication Features
+
+- **Secure Password Hashing**: Uses PBKDF2 with SHA-256 and salt
+- **Session Management**: Automatic session timeout and cleanup
+- **Account Lockout**: Protection against brute force attacks
+- **Permission Validation**: Real-time checking of user permissions
+- **Audit Logging**: Comprehensive logging of authentication events
 
 ## Development
 

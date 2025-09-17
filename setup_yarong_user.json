@@ -1,0 +1,22 @@
+{
+  "instruction": "Manual setup for yaronG user",
+  "user_data": {
+    "username": "yaronG", 
+    "email": "yaron@glassboxdigital.com",
+    "password": "ysyghb",
+    "role": "admin",
+    "description": "The king of Glassbox"
+  },
+  "steps": [
+    "1. Start the application with: streamlit run src/agents_playground/app.py",
+    "2. Login with default admin (username: admin, password: admin123)",
+    "3. Access admin panel at port 8502 (if available)",
+    "4. Or use the admin panel to create the yaronG user manually",
+    "5. Alternatively, the auth system will auto-create default admin when first run"
+  ],
+  "special_features": [
+    "yaronG will see personalized welcome: 'It's nice having you here, captain G'",
+    "Extra welcome message in main interface: 'Welcome to your AI Agents Kingdom!'",
+    "Full admin privileges with all permissions enabled"
+  ]
+}

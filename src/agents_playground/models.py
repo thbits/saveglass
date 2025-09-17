@@ -198,3 +198,77 @@ class VisualizationRequest(BaseModel):
     prompt: str = Field(..., description="User prompt for visualization")
     chart_type: Optional[str] = Field(default=None, description="Requested chart type")
     data_type: Optional[str] = Field(default=None, description="Type of data to generate")
+
+
+# User Management Models
+
+class UserRole(str, Enum):
+    """User role types with different permission levels."""
+    ADMIN = "admin"
+    POWER_USER = "power_user"
+    USER = "user"
+    GUEST = "guest"
+
+
+class UserPermissions(BaseModel):
+    """User permissions configuration."""
+    can_access_aws_tools: bool = Field(default=False, description="Can access AWS cost analysis tools")
+    can_change_llm_config: bool = Field(default=False, description="Can change LLM provider and model settings")
+    can_view_system_info: bool = Field(default=False, description="Can view system information and logs")
+    can_export_sessions: bool = Field(default=False, description="Can export chat sessions")
+    can_manage_users: bool = Field(default=False, description="Can manage other users (admin only)")
+    max_session_length: int = Field(default=10, description="Maximum number of messages per session")
+    max_daily_requests: int = Field(default=100, description="Maximum requests per day")
+    allowed_prompt_types: List[str] = Field(default_factory=lambda: ["basic"], description="Allowed prompt types")
+
+
+class User(BaseModel):
+    """User model with authentication and permissions."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+    
+    id: str = Field(..., description="Unique user identifier")
+    username: str = Field(..., min_length=3, max_length=50, description="Username")
+    email: str = Field(..., description="User email address")
+    password_hash: str = Field(..., description="Hashed password")
+    role: UserRole = Field(default=UserRole.USER, description="User role")
+    permissions: UserPermissions = Field(default_factory=UserPermissions, description="User permissions")
+    is_active: bool = Field(default=True, description="Whether user account is active")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="Account creation timestamp")
+    last_login: Optional[datetime] = Field(default=None, description="Last login timestamp")
+    login_attempts: int = Field(default=0, description="Failed login attempts counter")
+    locked_until: Optional[datetime] = Field(default=None, description="Account lock expiration")
+
+
+class UserCreate(BaseModel):
+    """User creation request model."""
+    username: str = Field(..., min_length=3, max_length=50, description="Username")
+    email: str = Field(..., description="User email address")
+    password: str = Field(..., min_length=8, description="User password")
+    role: UserRole = Field(default=UserRole.USER, description="User role")
+
+
+class UserLogin(BaseModel):
+    """User login request model."""
+    username: str = Field(..., description="Username or email")
+    password: str = Field(..., description="User password")
+
+
+class AuthSession(BaseModel):
+    """Authentication session model."""
+    session_id: str = Field(..., description="Session identifier")
+    user_id: str = Field(..., description="User identifier")
+    username: str = Field(..., description="Username")
+    role: UserRole = Field(..., description="User role")
+    permissions: UserPermissions = Field(..., description="User permissions")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="Session creation time")
+    expires_at: datetime = Field(..., description="Session expiration time")
+    last_activity: datetime = Field(default_factory=datetime.utcnow, description="Last activity timestamp")
+
+
+class AuthResponse(BaseModel):
+    """Authentication response model."""
+    success: bool = Field(..., description="Authentication success status")
+    message: str = Field(..., description="Response message")
+    session_id: Optional[str] = Field(default=None, description="Session identifier if successful")
+    user: Optional[Dict[str, Any]] = Field(default=None, description="User information if successful")
+    permissions: Optional[UserPermissions] = Field(default=None, description="User permissions if successful")

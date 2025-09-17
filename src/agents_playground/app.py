@@ -21,6 +21,14 @@ from agents_playground.config_loader import config_loader
 from agents_playground.logger import agent_logger
 from agents_playground.session_storage import session_storage
 from agents_playground.langchain_tools import available_tools
+from agents_playground.auth_utils import (
+    is_authenticated, get_current_session, show_login_page,
+    show_user_info_sidebar, check_prompt_permissions, 
+    enforce_session_limits, can_change_llm_config,
+    can_access_aws_tools, can_view_system_info, can_export_sessions,
+    get_current_user_role
+)
+from agents_playground.models import UserRole
 from langchain.schema import HumanMessage, AIMessage
 
 # Load environment variables
@@ -230,6 +238,11 @@ def display_chat_message(role: str, content: str, plots: list = None):
 
 def main():
     """Main application function."""
+    # Check authentication first
+    if not is_authenticated():
+        show_login_page()
+        return
+    
     initialize_session_state()
     
     # Sidebar for configuration
@@ -270,141 +283,136 @@ def main():
         
         st.divider()
         
-        # Agent settings
-        st.subheader("Agent Settings")
-        
-        # Provider selection
-        available_providers = st.session_state.agent.get_available_providers()
-        current_provider = st.session_state.agent.provider_name
-        
-        provider_name = st.selectbox(
-            "LLM Provider",
-            available_providers,
-            index=available_providers.index(current_provider) if current_provider in available_providers else 0
-        )
-        
-        # Model selection based on provider
-        available_models = config_loader.get_available_models(provider_name)
-        if available_models:
-            current_config = st.session_state.agent.get_current_config()
-            current_model = current_config.model
+        # Agent settings - check permissions
+        if can_change_llm_config():
+            st.subheader("🤖 Agent Settings")
             
-            # If the current model is not available for the selected provider, default to first model
-            default_index = 0
-            if current_model in available_models:
-                default_index = available_models.index(current_model)
+            # Provider selection
+            available_providers = st.session_state.agent.get_available_providers()
+            current_provider = st.session_state.agent.provider_name
             
-            model_name = st.selectbox(
-                "Model",
-                available_models,
-                index=default_index
+            provider_name = st.selectbox(
+                "LLM Provider",
+                available_providers,
+                index=available_providers.index(current_provider) if current_provider in available_providers else 0
             )
-        else:
-            model_name = st.text_input("Model Name", value="gpt-3.5-turbo")
-        
-        temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.1)
-        max_tokens = st.number_input("Max Tokens", 100, 4000, 1000)
-        
-        # Update agent configuration
-        if st.button("Update Agent Config"):
-            try:
-                agent_logger.info("User updating agent configuration", 
-                                provider=provider_name, 
-                                model=model_name, 
-                                temperature=temperature, 
-                                max_tokens=max_tokens)
+            
+            # Model selection based on provider
+            available_models = config_loader.get_available_models(provider_name)
+            if available_models:
+                current_config = st.session_state.agent.get_current_config()
+                current_model = current_config.model
                 
-                st.session_state.agent.update_config(
-                    provider_name=provider_name,
-                    model_name=model_name,
-                    temperature=temperature,
-                    max_tokens=max_tokens
+                # If the current model is not available for the selected provider, default to first model
+                default_index = 0
+                if current_model in available_models:
+                    default_index = available_models.index(current_model)
+                
+                model_name = st.selectbox(
+                    "Model",
+                    available_models,
+                    index=default_index
                 )
-                st.success("Agent configuration updated!")
-                st.rerun()
-            except Exception as e:
-                agent_logger.log_error(e, {"context": "config_update_ui"})
-                st.error(f"Failed to update configuration: {str(e)}")
-                st.rerun()
+            else:
+                model_name = st.text_input("Model Name", value="gpt-3.5-turbo")
+            
+            temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.1)
+            max_tokens = st.number_input("Max Tokens", 100, 4000, 1000)
+            
+            # Update agent configuration
+            if st.button("Update Agent Config"):
+                try:
+                    agent_logger.info("User updating agent configuration", 
+                                    provider=provider_name, 
+                                    model=model_name, 
+                                    temperature=temperature, 
+                                    max_tokens=max_tokens)
+                    
+                    st.session_state.agent.update_config(
+                        provider_name=provider_name,
+                        model_name=model_name,
+                        temperature=temperature,
+                        max_tokens=max_tokens
+                    )
+                    st.success("Agent configuration updated!")
+                    st.rerun()
+                except Exception as e:
+                    agent_logger.log_error(e, {"context": "config_update_ui"})
+                    st.error(f"Failed to update configuration: {str(e)}")
+                    st.rerun()
+        else:
+            st.subheader("🤖 Agent Settings")
+            st.info("🔒 You don't have permission to change LLM configuration.")
         
-        # Display current configuration
-        st.subheader("Current Config")
-        config = st.session_state.agent.get_current_config()
-        st.json(config.model_dump())
+        # Display current configuration - only if user can view system info
+        if can_view_system_info():
+            st.subheader("📊 Current Config")
+            config = st.session_state.agent.get_current_config()
+            st.json(config.model_dump())
+        else:
+            st.subheader("📊 Current Config")
+            st.info("🔒 System information viewing requires higher permissions.")
         
         # Clear chat
-        if st.button("Clear Chat History"):
+        if st.button("🗑️ Clear Chat History"):
             st.session_state.messages = []
             st.session_state.agent.clear_history()
             save_current_session()  # Save cleared session to persistent storage
             st.rerun()
         
-        # Provider Configuration Status
-        st.subheader("Provider Status")
-        if provider_name == "openai":
-            api_key = os.getenv("OPENAI_API_KEY")
-            if api_key:
-                st.success("✅ OpenAI API key configured")
-            else:
-                st.warning("⚠️ OpenAI API key not found. Set OPENAI_API_KEY environment variable.")
-        elif provider_name == "bedrock":
-            aws_region = os.getenv("AWS_REGION", "us-east-1")
-            st.info(f"AWS Region: {aws_region}")
+        # Provider Configuration Status - only show if can view system info
+        if can_view_system_info():
+            st.subheader("🔌 Provider Status")
+            current_config = st.session_state.agent.get_current_config()
+            current_provider = current_config.provider if hasattr(current_config, 'provider') else "unknown"
             
-            if os.getenv("AWS_ACCESS_KEY_ID"):
-                st.success("✅ AWS credentials configured")
-            else:
-                st.warning("⚠️ AWS credentials not configured. Using default profile if available.")
+            if current_provider == "openai":
+                api_key = os.getenv("OPENAI_API_KEY")
+                if api_key:
+                    st.success("✅ OpenAI API key configured")
+                else:
+                    st.warning("⚠️ OpenAI API key not found. Set OPENAI_API_KEY environment variable.")
+            elif current_provider == "bedrock":
+                aws_region = os.getenv("AWS_REGION", "us-east-1")
+                st.info(f"AWS Region: {aws_region}")
+                
+                if os.getenv("AWS_ACCESS_KEY_ID"):
+                    st.success("✅ AWS credentials configured")
+                else:
+                    st.warning("⚠️ AWS credentials not configured. Using default profile if available.")
         
-        st.divider()
+        # Admin panel link for admin users
+        current_role = get_current_user_role()
+        if current_role == UserRole.ADMIN:
+            st.divider()
+            st.subheader("🛠️ Admin Tools")
+            if st.button("👥 Open Admin Panel", use_container_width=True):
+                # Note: In a real deployment, this would navigate to a separate admin page
+                # For now, we'll show a message about running the admin panel separately
+                st.info("""
+                **Admin Panel Available!**
+                
+                To access the admin panel, run this command in a separate terminal:
+                ```bash
+                streamlit run src/agents_playground/admin_panel.py --server.port 8502
+                ```
+                
+                Then visit: http://localhost:8502
+                """)
         
-        # Theme toggle at the bottom
-        st.subheader("🎨 Theme")
-        
-        # Initialize theme in session state
-        if "theme_mode" not in st.session_state:
-            st.session_state.theme_mode = "light"
-        
-        # Theme toggle button with emoji
-        current_theme = st.session_state.theme_mode
-        button_emoji = "🌙" if current_theme == "light" else "☀️"
-        button_text = f"{button_emoji} Switch to {'Dark' if current_theme == 'light' else 'Light'} Mode"
-        
-        if st.button(button_text, help="Toggle between light and dark themes", key="theme_toggle_button", use_container_width=True):
-            if current_theme == "light":
-                # Switch to dark theme using Glassbox dark colors
-                st._config.set_option("theme.base", "dark")
-                st._config.set_option("theme.backgroundColor", "#1E1E1E")
-                st._config.set_option("theme.primaryColor", "#7059FF")
-                st._config.set_option("theme.secondaryBackgroundColor", "#2D2B4A")
-                st._config.set_option("theme.textColor", "#E0E0E0")
-                st.session_state.theme_mode = "dark"
-            else:
-                # Switch to light theme using Glassbox light colors
-                st._config.set_option("theme.base", "light")
-                st._config.set_option("theme.backgroundColor", "#FFFFFF")
-                st._config.set_option("theme.primaryColor", "#251B9C")
-                st._config.set_option("theme.secondaryBackgroundColor", "#F8F7FF")
-                st._config.set_option("theme.textColor", "#2D2D2D")
-                st.session_state.theme_mode = "light"
-            
-            st.rerun()
-        
-        # Display current theme
-        st.caption(f"Current theme: {current_theme.title()}")
+        # Add user information sidebar
+        show_user_info_sidebar()
     
-    # Main chat interface with logo
-    # Create a container for the logo and title with better spacing
-    logo_path = os.path.join(os.path.dirname(__file__), "../../resources/ui/glassbox-logo.svg")
-    if os.path.exists(logo_path):
-        with open(logo_path, "r") as f:
-            logo_svg = f.read()
-        # Display logo and title in a single line with better alignment
-        st.markdown(f'''<div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px;"><div style="width: 50px; height: 50px; flex-shrink: 0;">{logo_svg}</div><h1 style="margin: 0; font-size: 3rem; font-weight: 600; color: inherit;">SaveGlass</h1></div>''', unsafe_allow_html=True)
+    # Main chat interface
+    st.title("🤖 AI Agents Playground")
+    
+    # Show personalized welcome for special users
+    current_session = get_current_session()
+    if current_session and current_session.username.lower() == "yarong":
+        st.markdown("👑 **It's nice having you here, captain G** - Welcome to your AI Agents Kingdom!")
+        st.markdown("As the king of Glassbox, you have full access to all features and capabilities.")
     else:
-        st.title("🔍 SaveGlass")
-    
-    st.markdown("Welcome to SaveGlass! Ask questions about your AWS costs, request data analysis, or generate plots.")
+        st.markdown("Welcome to the AI Agents Playground! Ask questions, request data analysis, or generate plots.")
     
     # Display example questions
     try:
@@ -451,6 +459,27 @@ def main():
         save_current_session()  # Save session after adding user message
         display_chat_message("user", prompt)
     elif prompt := st.chat_input("Ask me anything... (try: 'generate a sales chart' or 'analyze data trends')"):
+        # Check session limits first
+        if not enforce_session_limits(st.session_state.messages):
+            st.stop()
+        
+        # Determine prompt type based on content
+        prompt_type = "basic"
+        aws_keywords = ["aws", "cost", "billing", "ec2", "s3", "lambda", "cloudformation"]
+        if any(keyword in prompt.lower() for keyword in aws_keywords):
+            prompt_type = "aws_analysis"
+        
+        # Check permissions for this prompt type
+        if not check_prompt_permissions(prompt, prompt_type):
+            st.error("🚫 You don't have permission to use this type of prompt.")
+            current_session = get_current_session()
+            if current_session:
+                if prompt_type == "aws_analysis":
+                    st.info(f"AWS-related prompts require higher permissions. Your role: {current_session.role}")
+                else:
+                    st.info(f"This prompt type requires different permissions. Your role: {current_session.role}")
+            st.stop()
+        
         # Add user message
         st.session_state.messages.append({"role": "user", "content": prompt})
         save_current_session()  # Save session after adding user message
