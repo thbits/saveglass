@@ -82,6 +82,19 @@ def load_session(session_id: str):
                     )
             break
 
+def get_session_cluster():
+    """Get the current cluster from session state."""
+    return getattr(st.session_state, 'current_cluster', None)
+
+def set_session_cluster(cluster_name):
+    """Set the current cluster in session state."""
+    st.session_state.current_cluster = cluster_name
+    st.session_state.cluster_asked = True
+
+def has_asked_for_cluster():
+    """Check if we've already asked for cluster in this session."""
+    return getattr(st.session_state, 'cluster_asked', False)
+
 def initialize_session_state():
     """Initialize session state variables."""
     try:
@@ -107,6 +120,12 @@ def initialize_session_state():
                 # Persist the new session immediately
                 session_storage.save_single_session(new_session)
         
+        # Initialize cluster memory for session
+        if "current_cluster" not in st.session_state:
+            st.session_state.current_cluster = None
+        if "cluster_asked" not in st.session_state:
+            st.session_state.cluster_asked = False
+            
         # Initialize agent
         if "agent" not in st.session_state:
             agent_logger.info("Initializing new agent instance")
