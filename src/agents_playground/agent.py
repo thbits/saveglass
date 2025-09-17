@@ -4,13 +4,14 @@ AI Agent implementation with configurable LLM providers and LangGraph streaming
 import os
 from typing import Dict, Any, Optional, Union, AsyncIterator, Iterator, List, Callable
 from langchain.schema import HumanMessage, SystemMessage, BaseMessage, AIMessage
-from langgraph.graph import StateGraph, END
+from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 import asyncio
 from agents_playground.config_loader import config_loader
 from agents_playground.factory import LLMProviderFactory
 from agents_playground.logger import agent_logger
-from agents_playground.models import AgentState, AgentCurrentConfig, ConfigUpdateRequest
+from agents_playground.models import AgentCurrentConfig, ConfigUpdateRequest
+from agents_playground.langchain_tools import available_tools
 
 
 class BaseAgent:
@@ -45,8 +46,6 @@ class BaseAgent:
         # Initialize LangGraph components
         self.memory = MemorySaver()
         self.graph = None
-        self.tools = {}  # Registry for custom tools
-
         # Initialize the LLM client and graph
         self._initialize_client()
         self._initialize_graph()
@@ -54,44 +53,27 @@ class BaseAgent:
 
     def add_tool(self, name: str, func: Callable, description: str = ""):
         """
-        Add a custom tool to the agent.
-
+        Add a custom tool to the agent (deprecated - tools are now configured via available_tools).
+        
         Args:
-            name: Tool name
-            func: Tool function that takes (state, **kwargs) and returns modified state
-            description: Tool description for logging
+            name: Tool name  
+            func: Tool function
+            description: Tool description
         """
-        self.tools[name] = {"func": func, "description": description}
-        # Rebuild graph with new tool
-        self._initialize_graph()
+        agent_logger.info(f"add_tool called but tools are now managed via available_tools in langchain_tools.py")
 
     def add_tools(self, tools: Dict[str, Dict[str, Any]]):
         """
-        Add multiple tools to the agent efficiently (rebuilds graph only once).
-
-        Args:
-            tools: Dictionary where keys are tool names and values are dicts containing:
-                  - 'func': Tool function that takes (state, **kwargs) and returns modified state
-                  - 'description': Tool description for logging (optional)
-        """
-        for name, tool_info in tools.items():
-            if isinstance(tool_info, dict):
-                func = tool_info.get('func')
-                description = tool_info.get('description', "")
-                if func:
-                    self.tools[name] = {"func": func, "description": description}
-            else:
-                # Handle case where tool_info is just the function
-                self.tools[name] = {"func": tool_info, "description": ""}
+        Add multiple tools to the agent (deprecated - tools are now configured via available_tools).
         
-        # Rebuild graph only once after adding all tools
-        self._initialize_graph()
+        Args:
+            tools: Dictionary of tools
+        """
+        agent_logger.info(f"add_tools called with {len(tools)} tools but tools are now managed via available_tools in langchain_tools.py")
 
     def remove_tool(self, name: str):
-        """Remove a tool from the agent."""
-        if name in self.tools:
-            del self.tools[name]
-            self._initialize_graph()
+        """Remove a tool from the agent (deprecated - tools are now configured via available_tools)."""
+        agent_logger.info(f"remove_tool called for {name} but tools are now managed via available_tools in langchain_tools.py")
 
     def _initialize_client(self):
         """Initialize the LLM client based on the configured provider."""
@@ -106,139 +88,45 @@ class BaseAgent:
             self.client = None
 
     def _initialize_graph(self):
-        """Initialize the LangGraph workflow with custom tools."""
+        """Initialize the LangGraph agent using create_react_agent."""
         try:
-            workflow = StateGraph(AgentState)
-
-            # Add core nodes
-            workflow.add_node("process_input", self._process_input_node)
-            workflow.add_node("tool_executor", self._tool_executor_node)
-            workflow.add_node("generate_response", self._generate_response_node)
-            workflow.add_node("finalize", self._finalize_node)
-
-            # Set entry point
-            workflow.set_entry_point("process_input")
-
-            # Connect nodes in sequence
-            workflow.add_edge("process_input", "tool_executor")
-            workflow.add_edge("tool_executor", "generate_response")
-            workflow.add_edge("generate_response", "finalize")
-            workflow.add_edge("finalize", END)
-
-            self.graph = workflow.compile(checkpointer=self.memory)
+            if not self.client:
+                print("Warning: No LLM client available, graph will not be initialized.")
+                self.graph = None
+                return
+                
+            # Get available tools (initially empty, will be populated via add_tools)
+            tools_list = list(available_tools)
+            
+            # Create the react agent using the prebuilt function
+            # Set recursion_limit to prevent infinite loops
+            self.graph = create_react_agent(
+                self.client,
+                tools_list,
+                checkpointer=self.memory
+            )
+            
+            # Configure recursion limit for the graph to prevent infinite loops
+            if hasattr(self.graph, 'config'):
+                self.graph.config = self.graph.config or {}
+                self.graph.config['recursion_limit'] = 10
+            
+            agent_logger.info(f"LangGraph agent initialized with {len(tools_list)} tools")
 
         except Exception as e:
             print(f"Error initializing LangGraph workflow: {e}")
+            agent_logger.log_error(e, {"context": "graph_initialization"})
             self.graph = None
 
-    def _process_input_node(self, state: AgentState) -> AgentState:
-        """Process user input and prepare for tool execution."""
-        state.processing_step = "processing_input"
-        state.metadata["timestamp"] = "processing_input"
-        state.metadata["tools_available"] = list(self.tools.keys())
-        return state
-
-    def _tool_executor_node(self, state: AgentState) -> AgentState:
-        """Execute only relevant tools based on user input analysis."""
-        state.processing_step = "executing_tools"
-        
-        # Extract user message for analysis
-        user_message = ""
-        if state.messages:
-            last_message = state.messages[-1]
-            if hasattr(last_message, 'content'):
-                user_message = last_message.content.lower()
-        
-        # Define tool keywords for AWS cost tools
-        tool_keywords = {
-            "get_last_month_costs": ["last month", "previous month", "past month", "last month cost", "previous cost"],
-            "get_current_month_costs": ["current month", "this month", "current cost", "month to date", "mtd"]
-        }
-        
-        # Execute only relevant tools
-        executed_tools = []
-        if not state.metadata.get("tool_results"):
-            state.metadata["tool_results"] = []
-            
-        # First pass: check for specific tool keywords
-        specific_matches = []
-        for tool_name, tool_info in self.tools.items():
-            keywords = tool_keywords.get(tool_name, [])
-            if keywords and any(keyword in user_message for keyword in keywords):
-                specific_matches.append(tool_name)
-        
-        # If specific matches found, execute only those
-        tools_to_execute = specific_matches if specific_matches else []
-        
-        # If no specific matches and user mentions general cost terms, execute all cost tools
-        if not specific_matches and any(word in user_message for word in ["cost", "costs", "aws", "billing", "expense"]):
-            tools_to_execute = list(self.tools.keys())
-        
-        for tool_name, tool_info in self.tools.items():
-            should_execute = tool_name in tools_to_execute
-                
-            if should_execute:
-                try:
-                    # Execute the tool
-                    result_state = tool_info["func"](state)
-                    executed_tools.append(tool_name)
-                    # Update state with results from the tool
-                    if hasattr(result_state, 'metadata') and "tool_results" in result_state.metadata:
-                        state.metadata["tool_results"] = result_state.metadata["tool_results"]
-                except Exception as e:
-                    error_msg = f"Error executing {tool_name}: {str(e)}"
-                    state.metadata["tool_results"].append(error_msg)
-        
-        state.metadata["executed_tools"] = executed_tools
-        return state
-
-    def _generate_response_node(self, state: AgentState) -> AgentState:
-        """Generate response using the LLM."""
-        state.processing_step = "generating_response"
-
-        if not self.client:
-            if state.messages:
-                last_message = state.messages[-1]
-                if isinstance(last_message, HumanMessage):
-                    state.current_response = self._mock_response(last_message.content)
-                else:
-                    state.current_response = self._mock_response("Hello")
-            else:
-                state.current_response = self._mock_response("Hello")
-        else:
-            try:
-                system_prompt = config_loader.get_system_prompt("default")
-
-                # Include tool results in system prompt if available
-                if "tool_results" in state.metadata:
-                    tool_context = "\nTool Results:\n" + "\n".join(state.metadata["tool_results"])
-                    system_prompt += tool_context
-
-                system_message = SystemMessage(content=system_prompt)
-                messages = [system_message] + state.messages[-self.conversation_limit:]
-
-                response = self.client(messages)
-                state.current_response = response.content
-
-            except Exception as e:
-                state.current_response = f"Error generating response: {str(e)}"
-
-        return state
-
-    def _finalize_node(self, state: AgentState) -> AgentState:
-        """Finalize the response and update state."""
-        state.processing_step = "finalized"
-        state.metadata["completed"] = True
-        return state
 
     def _mock_response(self, message: str) -> str:
         """Provide mock responses when LLM client is not available."""
         message_lower = message.lower()
 
-        # Check for tool-specific responses
-        for tool_name in self.tools.keys():
-            if tool_name.lower() in message_lower:
-                return f"Mock response: Executed {tool_name} tool with message: {message}"
+        # Check for tool-specific responses based on available tools
+        tool_keywords = ["cost", "costs", "aws", "billing", "expense", "last month", "current month"]
+        if any(keyword in message_lower for keyword in tool_keywords):
+            return f"Mock response: Would execute AWS cost tools for query: {message}"
 
         # Default mock responses
         ui_config = config_loader.get_ui_config()
@@ -315,7 +203,13 @@ class BaseAgent:
                 else:
                     response = await self._chat_legacy(message, prompt_type)
 
-                agent_logger.log_agent_request_end(context, response, success=True)
+                # Log full response for debugging if it contains plot data or if debugging is enabled
+                log_full = "[PLOT_DATA]" in response or os.getenv("DEBUG_FULL_RESPONSES", "false").lower() == "true"
+                agent_logger.log_agent_request_end(context, response, success=True, log_full_response=log_full)
+                
+                # Also log detailed response analysis
+                agent_logger.log_full_llm_response(context["request_id"], message, response, self.provider_name)
+                
                 return response
 
             except Exception as e:
@@ -332,21 +226,25 @@ class BaseAgent:
             if len(self.conversation_history) > self.conversation_limit:
                 self.conversation_history = self.conversation_history[-self.conversation_limit:]
 
-            state: AgentState = {
-                "messages": self.conversation_history.copy(),
-                "current_response": "",
-                "processing_step": "initial",
-                "metadata": {"tool_results": []}
-            }
+            # Add system prompt to messages
+            system_prompt = config_loader.get_system_prompt(prompt_type)
+            messages = [SystemMessage(content=system_prompt)] + self.conversation_history
 
-            result = await self.graph.ainvoke(state, config={"configurable": {"thread_id": "default"}})
-            response_content = result["current_response"]
+            # create_react_agent expects {"messages": [...]} format
+            state = {"messages": messages}
 
-            if response_content:
-                response_message = AIMessage(content=response_content)
-                self.conversation_history.append(response_message)
+            result = await self.graph.ainvoke(state, config={"configurable": {"thread_id": "default"}, "recursion_limit": 10})
+            
+            # Extract response from the result messages
+            if "messages" in result and result["messages"]:
+                last_message = result["messages"][-1]
+                if hasattr(last_message, 'content'):
+                    response_content = last_message.content
+                    response_message = AIMessage(content=response_content)
+                    self.conversation_history.append(response_message)
+                    return response_content
 
-            return response_content
+            return "No response generated"
 
         except Exception as e:
             return f"Error in graph processing: {str(e)}"
@@ -381,7 +279,7 @@ class BaseAgent:
     async def chat_stream(self, message: str, prompt_type: str = "default") -> AsyncIterator[str]:
         """Stream a response from the agent using LangGraph."""
         if not self.graph:
-            response = self._chat_legacy(message, prompt_type)
+            response = await self._chat_legacy(message, prompt_type)
             yield response
             return
 
@@ -392,22 +290,62 @@ class BaseAgent:
             if len(self.conversation_history) > self.conversation_limit:
                 self.conversation_history = self.conversation_history[-self.conversation_limit:]
 
-            state: AgentState = {
-                "messages": self.conversation_history.copy(),
-                "current_response": "",
-                "processing_step": "initial",
-                "metadata": {"tool_results": []}
-            }
+            # Add system prompt to messages
+            system_prompt = config_loader.get_system_prompt(prompt_type)
+            messages = [SystemMessage(content=system_prompt)] + self.conversation_history
 
-            async for chunk in self.graph.astream(state, config={"configurable": {"thread_id": "default"}}):
-                if chunk and "generate_response" in chunk:
-                    node_output = chunk["generate_response"]
-                    if isinstance(node_output, dict) and node_output.get("current_response"):
-                        response = node_output["current_response"]
-                        chunk_size = 10
-                        for i in range(0, len(response), chunk_size):
-                            yield response[i:i + chunk_size]
-                            await asyncio.sleep(0.1)
+            # create_react_agent expects {"messages": [...]} format
+            state = {"messages": messages}
+
+            full_response = ""
+            plot_detected = False
+            async for chunk in self.graph.astream(state, config={"configurable": {"thread_id": "default"}, "recursion_limit": 10}):
+                # create_react_agent streams differently - look for messages in chunk
+                for key, value in chunk.items():
+                    if isinstance(value, dict) and "messages" in value:
+                        messages = value["messages"]
+                        if messages and hasattr(messages[-1], 'content'):
+                            # Stream the content in chunks
+                            content = messages[-1].content
+                            if content and content != full_response:
+                                new_content = content[len(full_response):]
+                                full_response = content
+                                
+                                # Check if we encounter a plot marker - if so, stop streaming
+                                if "[PLOT_DATA]" in new_content and not plot_detected:
+                                    plot_detected = True
+                                    # Stream content up to the plot marker
+                                    plot_start = new_content.find("[PLOT_DATA]")
+                                    content_before_plot = new_content[:plot_start]
+                                    if content_before_plot:
+                                        chunk_size = 10
+                                        for i in range(0, len(content_before_plot), chunk_size):
+                                            yield content_before_plot[i:i + chunk_size]
+                                            await asyncio.sleep(0.1)
+                                    # Signal that we're generating a plot and stop streaming
+                                    yield "PLOT_GENERATION_STARTED"
+                                    break
+                                elif not plot_detected:
+                                    # Normal streaming without plot data
+                                    chunk_size = 10
+                                    for i in range(0, len(new_content), chunk_size):
+                                        yield new_content[i:i + chunk_size]
+                                        await asyncio.sleep(0.1)
+
+            # If plot was detected, yield the final complete response
+            if plot_detected:
+                yield "PLOT_GENERATION_COMPLETE"
+                yield full_response
+
+            # Add final response to conversation history
+            if full_response:
+                response_message = AIMessage(content=full_response)
+                self.conversation_history.append(response_message)
+                
+                # Log full streaming response for debugging
+                import uuid
+                request_id = str(uuid.uuid4())
+                agent_logger.log_full_llm_response(request_id, message, full_response, self.provider_name)
 
         except Exception as e:
             yield f"Error in streaming: {str(e)}"

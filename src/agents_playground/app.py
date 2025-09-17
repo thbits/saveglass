@@ -9,6 +9,8 @@ from typing import Dict, Any
 import os
 import traceback
 import asyncio
+import re
+import json
 from datetime import datetime
 import uuid
 from dotenv import load_dotenv
@@ -18,7 +20,7 @@ from agents_playground.utils import generate_sample_data, create_plot
 from agents_playground.config_loader import config_loader
 from agents_playground.logger import agent_logger
 from agents_playground.session_storage import session_storage
-from agents_playground.aws_tools import get_last_month_costs, get_current_month_costs
+from agents_playground.langchain_tools import available_tools
 from langchain.schema import HumanMessage, AIMessage
 
 # Load environment variables
@@ -110,22 +112,9 @@ def initialize_session_state():
             agent_logger.info("Initializing new agent instance")
             st.session_state.agent = ChatAgent()
             
-            # Add AWS cost tools to the agent using the efficient add_tools method
-            aws_tools = {
-                "aws_last_month_costs": {
-                    "func": get_last_month_costs,
-                    "description": "Fetch AWS costs for the last month"
-                },
-                "aws_current_month_costs": {
-                    "func": get_current_month_costs,
-                    "description": "Fetch AWS costs for the current month (month-to-date)"
-                }
-                # "aws_cost_forecast": {
-                #     "func": get_cost_forecast,
-                #     "description": "Get AWS cost forecast for the next month"
-                # }
-            }
-            st.session_state.agent.add_tools(aws_tools)
+            # Add AWS cost tools to the agent using the LangChain tools
+            # The tools are now automatically loaded with create_react_agent via available_tools
+            # No need to manually add tools as they're included in the agent initialization
             
             agent_logger.info("Added AWS cost tools to agent")
             
@@ -133,6 +122,77 @@ def initialize_session_state():
         agent_logger.log_error(e, {"context": "session_initialization"})
         st.error(f"Failed to initialize session: {str(e)}")
         st.stop()
+
+def extract_plots_from_response(response: str) -> tuple[str, list]:
+    """Extract plot data from agent response and return clean text with plots."""
+    plots = []
+    clean_response = response
+    
+    # Log the extraction attempt
+    agent_logger.info(
+        "Starting plot extraction from response",
+        response_length=len(response),
+        contains_plot_markers="[PLOT_DATA]" in response and "[/PLOT_DATA]" in response
+    )
+    
+    # Find all plot data markers
+    plot_pattern = r'\[PLOT_DATA\](.*?)\[/PLOT_DATA\]'
+    plot_matches = re.findall(plot_pattern, response, re.DOTALL)
+    
+    agent_logger.info(f"Found {len(plot_matches)} plot data blocks")
+    
+    for i, plot_json in enumerate(plot_matches):
+        try:
+            plot_json_stripped = plot_json.strip()
+            agent_logger.info(
+                f"Processing plot {i+1}",
+                plot_data_length=len(plot_json_stripped),
+                plot_preview=plot_json_stripped[:100] + "..." if len(plot_json_stripped) > 100 else plot_json_stripped
+            )
+            
+            # Parse JSON and create plotly figure
+            plot_dict = json.loads(plot_json_stripped)
+            fig = go.Figure(plot_dict)
+            plots.append(fig)
+            
+            agent_logger.info(
+                f"Successfully created plot {i+1}",
+                plot_type=plot_dict.get('data', [{}])[0].get('type', 'unknown') if plot_dict.get('data') else 'unknown',
+                has_layout=bool(plot_dict.get('layout')),
+                data_points=len(plot_dict.get('data', []))
+            )
+            
+        except json.JSONDecodeError as e:
+            agent_logger.log_error(
+                e, {
+                    "context": "plot_json_parsing", 
+                    "plot_index": i,
+                    "plot_json_length": len(plot_json),
+                    "plot_json_preview": plot_json[:200],
+                    "json_error": str(e)
+                }
+            )
+        except Exception as e:
+            agent_logger.log_error(
+                e, {
+                    "context": "plot_figure_creation", 
+                    "plot_index": i,
+                    "plot_json": plot_json[:100]
+                }
+            )
+    
+    # Remove plot data from response text
+    clean_response = re.sub(plot_pattern, '', response, flags=re.DOTALL).strip()
+    
+    agent_logger.info(
+        "Plot extraction completed",
+        plots_extracted=len(plots),
+        clean_response_length=len(clean_response),
+        original_response_length=len(response)
+    )
+    
+    return clean_response, plots
+
 
 def display_chat_message(role: str, content: str, plots: list = None):
     """Display a chat message with optional plots."""
@@ -341,11 +401,15 @@ def main():
                 agent_logger.info("Processing user chat request", user_input=prompt[:100])
                 
                 # Get agent response with streaming
-                full_response = ""
+                final_response = ""
                 async def stream_response():
-                    nonlocal full_response
+                    nonlocal final_response
                     async for chunk in st.session_state.agent.chat_stream(prompt):
-                        full_response += chunk
+                        # Capture the final complete response when plot generation is complete
+                        if chunk not in ["PLOT_GENERATION_STARTED", "PLOT_GENERATION_COMPLETE"]:
+                            # Only set final_response for the complete response, not incremental chunks
+                            if "[PLOT_DATA]" in chunk and "[/PLOT_DATA]" in chunk:
+                                final_response = chunk
                         yield chunk
                 
                 # Display streaming response using consistent styling
@@ -354,20 +418,45 @@ def main():
                 
                 async def display_stream():
                     nonlocal streamed_content
+                    generating_plot = False
                     async for chunk in stream_response():
-                        streamed_content += chunk
-                        with response_placeholder.container():
-                            display_chat_message("assistant", streamed_content)
+                        # Handle special plot generation signals
+                        if chunk == "PLOT_GENERATION_STARTED":
+                            generating_plot = True
+                            # Update display to show plot generation status
+                            clean_streamed_content, _ = extract_plots_from_response(streamed_content)
+                            with response_placeholder.container():
+                                display_chat_message("assistant", clean_streamed_content + "\n\n📊 *Generating plot...*")
+                            continue
+                        elif chunk == "PLOT_GENERATION_COMPLETE":
+                            generating_plot = False
+                            # The next chunk will be the full response with plot data
+                            continue
+                        elif generating_plot:
+                            # During plot generation, we receive the full response - replace streamed_content
+                            streamed_content = chunk
+                            break
+                        else:
+                            # Normal streaming - accumulate content
+                            streamed_content += chunk
+                            # Extract and display clean content without plot data during streaming
+                            clean_streamed_content, _ = extract_plots_from_response(streamed_content)
+                            with response_placeholder.container():
+                                display_chat_message("assistant", clean_streamed_content)
                         
                 asyncio.run(display_stream())
                     
-                response = full_response
+                # Use the final response if available, otherwise use streamed content
+                response = final_response if final_response else streamed_content
                 
-                # Check if response includes plot generation request
-                plots = []
+                # Extract plots from tool responses
+                clean_response, tool_plots = extract_plots_from_response(response)
+                
+                # Check if response includes plot generation request (for user visualization requests)
+                plots = tool_plots.copy()  # Start with plots from tools
                 is_visualization_request = any(keyword in prompt.lower() for keyword in ["chart", "plot", "graph", "visualiz"])
                 
-                if is_visualization_request:
+                if is_visualization_request and not tool_plots:  # Only generate sample plots if no tool plots
                     try:
                         agent_logger.info("Processing visualization request", prompt=prompt[:100])
                         
@@ -392,7 +481,7 @@ def main():
                 # Add assistant message to history
                 st.session_state.messages.append({
                     "role": "assistant", 
-                    "content": response,
+                    "content": clean_response,  # Use clean response without plot data
                     "plots": plots
                 })
                 

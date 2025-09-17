@@ -61,7 +61,7 @@ class AgentLogger:
             }
         )
     
-    def log_agent_request_end(self, context: Dict[str, Any], response: str, success: bool = True, error: str = None):
+    def log_agent_request_end(self, context: Dict[str, Any], response: str, success: bool = True, error: str = None, log_full_response: bool = False):
         """Log the end of an agent request."""
         duration = (datetime.utcnow() - context["trace_start"]).total_seconds()
         
@@ -74,6 +74,20 @@ class AgentLogger:
             "response_length": len(response) if response else 0,
             "timestamp": datetime.utcnow().isoformat()
         }
+        
+        # Add full response content if requested (for debugging)
+        if log_full_response and response:
+            log_data["full_response"] = response
+            # Also check for plot data markers
+            has_plot_data = "[PLOT_DATA]" in response and "[/PLOT_DATA]" in response
+            log_data["contains_plot_data"] = has_plot_data
+            if has_plot_data:
+                import re
+                plot_pattern = r'\[PLOT_DATA\](.*?)\[/PLOT_DATA\]'
+                plot_matches = re.findall(plot_pattern, response, re.DOTALL)
+                log_data["plot_data_count"] = len(plot_matches)
+                if plot_matches:
+                    log_data["plot_data_size"] = len(plot_matches[0])
         
         if error:
             log_data["error"] = str(error)
@@ -135,6 +149,62 @@ class AgentLogger:
                 "prompt": prompt[:100] + "..." if len(prompt) > 100 else prompt,
                 "chart_type": chart_type,
                 "success": success,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+    
+    def log_full_llm_response(self, request_id: str, user_input: str, full_response: str, provider: str = None):
+        """Log the complete LLM response for debugging purposes."""
+        import re
+        
+        # Analyze response content
+        response_analysis = {
+            "length": len(full_response),
+            "line_count": len(full_response.split('\n')),
+            "word_count": len(full_response.split()),
+        }
+        
+        # Check for plot data
+        has_plot_data = "[PLOT_DATA]" in full_response and "[/PLOT_DATA]" in full_response
+        response_analysis["contains_plot_data"] = has_plot_data
+        
+        if has_plot_data:
+            plot_pattern = r'\[PLOT_DATA\](.*?)\[/PLOT_DATA\]'
+            plot_matches = re.findall(plot_pattern, full_response, re.DOTALL)
+            response_analysis["plot_data_count"] = len(plot_matches)
+            response_analysis["plot_data_sizes"] = [len(match) for match in plot_matches]
+            
+            # Check if plot data appears to be truncated
+            for i, match in enumerate(plot_matches):
+                try:
+                    import json
+                    json.loads(match.strip())
+                    response_analysis[f"plot_{i}_valid_json"] = True
+                except json.JSONDecodeError:
+                    response_analysis[f"plot_{i}_valid_json"] = False
+        
+        # Check for duplicated content patterns
+        lines = full_response.split('\n')
+        unique_lines = set()
+        duplicate_count = 0
+        for line in lines:
+            line_clean = line.strip()
+            if line_clean and line_clean in unique_lines:
+                duplicate_count += 1
+            else:
+                unique_lines.add(line_clean)
+        response_analysis["duplicate_lines"] = duplicate_count
+        
+        self.logger.info(
+            "Full LLM response captured for debugging",
+            extra={
+                "event_type": "full_llm_response",
+                "request_id": request_id,
+                "session_id": self.session_id,
+                "user_input": user_input[:100] + "..." if len(user_input) > 100 else user_input,
+                "provider": provider,
+                "response_analysis": response_analysis,
+                "full_response": full_response,
                 "timestamp": datetime.utcnow().isoformat()
             }
         )
@@ -203,6 +273,18 @@ class StructuredFormatter(logging.Formatter):
             log_entry["error"] = record.error
         if hasattr(record, 'user_input'):
             log_entry["user_input"] = record.user_input
+        if hasattr(record, 'full_response'):
+            log_entry["full_response"] = record.full_response
+        if hasattr(record, 'response_analysis'):
+            log_entry["response_analysis"] = record.response_analysis
+        if hasattr(record, 'contains_plot_data'):
+            log_entry["contains_plot_data"] = record.contains_plot_data
+        if hasattr(record, 'plot_data_count'):
+            log_entry["plot_data_count"] = record.plot_data_count
+        if hasattr(record, 'plot_data_size'):
+            log_entry["plot_data_size"] = record.plot_data_size
+        if hasattr(record, 'response_length'):
+            log_entry["response_length"] = record.response_length
         
         return json.dumps(log_entry, default=str)
 
