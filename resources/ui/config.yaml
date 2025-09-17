@@ -64,7 +64,7 @@ messages:
   success_config_update: "Agent configuration updated!"
   warning_no_credentials: "API credentials not configured. Please set the appropriate environment variables."
 
-input_placeholder: "Ask me anything about your AWS costs... (try: 'Which service cost me the most last month?' or 'analyze cost trends')"
+input_placeholder: "Ask me anything..."
 
 example_questions:
   enabled: true

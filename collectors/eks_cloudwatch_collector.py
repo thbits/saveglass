@@ -101,9 +101,11 @@ class EKSCloudWatchCollector:
         self.elbv2_client = self.session.client('elbv2')
         self.elb_client = self.session.client('elb')
         self.region = region
+        self.cluster_name = None  # Will be set when get_cluster_resources is called
         
     def get_cluster_resources(self, cluster_name: str) -> Dict[str, List[Dict]]:
         """Discover all resources related to the EKS cluster."""
+        self.cluster_name = cluster_name  # Store cluster name for use in metrics
         logger.info(f"Discovering resources for EKS cluster: {cluster_name}")
         
         resources = {
@@ -370,6 +372,8 @@ class EKSCloudWatchCollector:
         current_time = start_time
         while current_time <= end_time:
             metrics.append({
+                'cluster_name': self.cluster_name,
+                'cluster_region': self.region,
                 'timestamp': current_time.isoformat(),
                 'resource_type': 'eks_cluster',
                 'resource_id': cluster_name,
@@ -419,6 +423,8 @@ class EKSCloudWatchCollector:
                 
                 for datapoint in response['Datapoints']:
                     metrics.append({
+                        'cluster_name': self.cluster_name,
+                        'cluster_region': self.region,
                         'timestamp': datapoint['Timestamp'].isoformat(),
                         'resource_type': 'ec2_instance',
                         'resource_id': instance_id,
@@ -449,6 +455,8 @@ class EKSCloudWatchCollector:
         current_time = start_time
         while current_time <= end_time:
             metrics.append({
+                'cluster_name': self.cluster_name,
+                'cluster_region': self.region,
                 'timestamp': current_time.isoformat(),
                 'resource_type': 'ebs_volume',
                 'resource_id': volume_id,
@@ -478,6 +486,8 @@ class EKSCloudWatchCollector:
         current_time = start_time
         while current_time <= end_time:
             metrics.append({
+                'cluster_name': self.cluster_name,
+                'cluster_region': self.region,
                 'timestamp': current_time.isoformat(),
                 'resource_type': 'ebs_snapshot',
                 'resource_id': snapshot_id,
@@ -550,6 +560,8 @@ class EKSCloudWatchCollector:
                 for datapoint in response['Datapoints']:
                     value_key = 'Sum' if 'Count' in metric_name else 'Average'
                     metrics.append({
+                        'cluster_name': self.cluster_name,
+                        'cluster_region': self.region,
                         'timestamp': datapoint['Timestamp'].isoformat(),
                         'resource_type': 'load_balancer',
                         'resource_id': lb_name,

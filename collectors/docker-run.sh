@@ -90,6 +90,20 @@ docker run --rm \
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}Collection completed successfully!${NC}"
     echo -e "${GREEN}Output saved to: $OUTPUT_DIR/$OUTPUT_FILE${NC}"
+    
+    # Split CSV by resource type
+    echo -e "${YELLOW}Splitting CSV by resource type...${NC}"
+    SPLIT_DIR="$OUTPUT_DIR/split"
+    mkdir -p "$SPLIT_DIR"
+    
+    python3 split_csv_by_resource.py "$OUTPUT_DIR/$OUTPUT_FILE" "$SPLIT_DIR/"
+    
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}CSV files split successfully!${NC}"
+        echo -e "${GREEN}Split files saved to: $SPLIT_DIR/${NC}"
+    else
+        echo -e "${YELLOW}Warning: CSV splitting failed, but main collection succeeded${NC}"
+    fi
 else
     echo -e "${RED}Collection failed${NC}"
     exit 1
