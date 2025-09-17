@@ -546,6 +546,306 @@ def _get_usage_report(query: str = "") -> str:
         return error_msg
 
 
+def _create_cluster_resources_plot(df: pd.DataFrame, metric_type: str) -> Optional[dict]:
+    """
+    Create a plot for cluster resources data visualization.
+    
+    Args:
+        df: DataFrame containing cluster resources data
+        metric_type: Type of metric to plot ('usage' or 'cost')
+    
+    Returns:
+        Minimal plot data dictionary for efficient transmission
+    """
+    if df.empty:
+        return None
+    
+    try:
+        if metric_type == 'cost':
+            # Group by resource type and sum costs
+            cost_summary = df.groupby('resource_type')['price_per_day'].sum().sort_values(ascending=False)
+            
+            plot_data = {
+                "data": [{
+                    "type": "bar",
+                    "x": cost_summary.index.tolist(),
+                    "y": cost_summary.values.tolist(),
+                    "marker": {
+                        "color": "steelblue"
+                    }
+                }],
+                "layout": {
+                    "title": "Cluster Resources Cost by Resource Type",
+                    "xaxis": {
+                        "title": "Resource Type",
+                        "tickangle": -45
+                    },
+                    "yaxis": {
+                        "title": "Cost (USD/day)",
+                        "tickformat": "$,.2f"
+                    },
+                    "height": 500,
+                    "showlegend": False
+                }
+            }
+        else:  # usage
+            # For usage metrics, focus on CPU utilization over time
+            cpu_data = df[df['metric_name'] == 'CPUUtilization'].copy()
+            if not cpu_data.empty:
+                cpu_data['timestamp'] = pd.to_datetime(cpu_data['timestamp'])
+                cpu_summary = cpu_data.groupby(cpu_data['timestamp'].dt.date)['value'].mean()
+                
+                plot_data = {
+                    "data": [{
+                        "type": "scatter",
+                        "mode": "lines+markers",
+                        "x": [str(date) for date in cpu_summary.index],
+                        "y": cpu_summary.values.tolist(),
+                        "marker": {
+                            "color": "green"
+                        },
+                        "line": {
+                            "color": "green"
+                        }
+                    }],
+                    "layout": {
+                        "title": "Average CPU Utilization Over Time",
+                        "xaxis": {
+                            "title": "Date"
+                        },
+                        "yaxis": {
+                            "title": "CPU Utilization (%)",
+                            "tickformat": ".1f"
+                        },
+                        "height": 500,
+                        "showlegend": False
+                    }
+                }
+            else:
+                return None
+        
+        return plot_data
+        
+    except Exception as e:
+        agent_logger.log_error(e, {"context": "cluster_resources_plot_creation"})
+        return None
+
+
+def _create_generic_dimension_plot(df: pd.DataFrame, dimension: str, value_column: str = 'value') -> Optional[dict]:
+    """
+    Create a generic plot for any dimension aggregated daily.
+    
+    Args:
+        df: DataFrame containing the data
+        dimension: Column name to aggregate by (e.g., 'resource_type', 'instance_type')
+        value_column: Column name containing values to aggregate
+    
+    Returns:
+        Minimal plot data dictionary for efficient transmission
+    """
+    if df.empty:
+        return None
+    
+    try:
+        # Convert timestamp to date for daily aggregation
+        df['date'] = pd.to_datetime(df['timestamp']).dt.date
+        
+        # Check if it's a categorical dimension or numeric aggregation
+        if dimension in df.columns and not pd.api.types.is_numeric_dtype(df[dimension]):
+            # Categorical dimension - aggregate by dimension over time
+            daily_agg = df.groupby(['date', dimension])[value_column].sum().reset_index()
+            
+            # Create a line plot for each category
+            plot_data = {
+                "data": [],
+                "layout": {
+                    "title": f"Daily {dimension.title().replace('_', ' ')} Trends",
+                    "xaxis": {"title": "Date"},
+                    "yaxis": {"title": f"Total {value_column.title().replace('_', ' ')}"},
+                    "height": 500
+                }
+            }
+            
+            # Add trace for each unique dimension value (limit to top 10)
+            top_dimensions = daily_agg.groupby(dimension)[value_column].sum().nlargest(10).index
+            colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+            
+            for i, dim_value in enumerate(top_dimensions):
+                dim_data = daily_agg[daily_agg[dimension] == dim_value]
+                plot_data["data"].append({
+                    "type": "scatter",
+                    "mode": "lines+markers",
+                    "x": [str(date) for date in dim_data['date']],
+                    "y": dim_data[value_column].tolist(),
+                    "name": str(dim_value),
+                    "marker": {"color": colors[i % len(colors)]},
+                    "line": {"color": colors[i % len(colors)]}
+                })
+        else:
+            # Numeric dimension - aggregate daily totals
+            daily_totals = df.groupby('date')[value_column].sum().reset_index()
+            
+            plot_data = {
+                "data": [{
+                    "type": "scatter",
+                    "mode": "lines+markers",
+                    "x": [str(date) for date in daily_totals['date']],
+                    "y": daily_totals[value_column].tolist(),
+                    "marker": {"color": "steelblue"},
+                    "line": {"color": "steelblue"}
+                }],
+                "layout": {
+                    "title": f"Daily {value_column.title().replace('_', ' ')} Trends",
+                    "xaxis": {"title": "Date"},
+                    "yaxis": {"title": f"Total {value_column.title().replace('_', ' ')}"},
+                    "height": 500,
+                    "showlegend": False
+                }
+            }
+        
+        return plot_data
+        
+    except Exception as e:
+        agent_logger.log_error(e, {"context": "generic_dimension_plot_creation", "dimension": dimension})
+        return None
+
+
+def _get_cluster_dimension_analytics(query: str = "") -> str:
+    """
+    Generic tool that reads the CSV file, aggregates daily data for any specified dimension(s) and plots it.
+    Supports queries like 'plot resource_type daily', 'show instance_type trends', 'aggregate price_per_day by resource_type'.
+    
+    Args:
+        query: User query string specifying the dimension(s) to analyze
+    
+    Returns:
+        Formatted string with dimension analytics and plot data
+    """
+    try:
+        # Path to the CSV file
+        csv_path = "resources/data/daily_resources_utilizations.csv"
+        
+        if not os.path.exists(csv_path):
+            return f"Error: CSV file not found at {csv_path}"
+        
+        # Read the CSV file
+        df = pd.read_csv(csv_path)
+        agent_logger.info(f"Loaded cluster resources data with {len(df)} records")
+        
+        if df.empty:
+            return "No data found in the cluster resources file."
+        
+        # Convert timestamp to datetime
+        df['timestamp'] = pd.to_datetime(df['timestamp'], format='mixed', utc=True)
+        
+        # Available dimensions and value columns
+        available_dimensions = ['clusterName', 'region', 'cluster_version', 'instance_type', 
+                               'metric_name', 'resource_id', 'resource_type', 'volume_id', 'volume_type', 'unit']
+        available_values = ['price_per_day', 'size_gb', 'value']
+        
+        # Parse query to identify dimension and value column
+        query_lower = query.lower()
+        
+        # Find dimension in query
+        dimension = None
+        for dim in available_dimensions:
+            if dim.lower() in query_lower or dim.lower().replace('_', ' ') in query_lower:
+                dimension = dim
+                break
+        
+        # Find value column in query (default to 'value')
+        value_column = 'value'  # default
+        for val_col in available_values:
+            if val_col.lower() in query_lower or val_col.lower().replace('_', ' ') in query_lower:
+                value_column = val_col
+                break
+        
+        # If no specific dimension found, try to infer from common patterns
+        if not dimension:
+            if any(word in query_lower for word in ['instance', 'type', 'ec2']):
+                dimension = 'instance_type'
+            elif any(word in query_lower for word in ['resource', 'resources']):
+                dimension = 'resource_type'
+            elif any(word in query_lower for word in ['metric', 'metrics']):
+                dimension = 'metric_name'
+            elif any(word in query_lower for word in ['cluster', 'clusters']):
+                dimension = 'clusterName'
+            else:
+                dimension = 'resource_type'  # default fallback
+        
+        # If asking about cost/price, use price_per_day as value column
+        if any(word in query_lower for word in ['cost', 'price', 'pricing', 'expense', 'spend']):
+            value_column = 'price_per_day'
+        
+        # Filter data for the specified dimension and value column
+        filtered_df = df.dropna(subset=[dimension, value_column])
+        
+        if filtered_df.empty:
+            return f"No data found for dimension '{dimension}' with value column '{value_column}'."
+        
+        # Create date column for daily aggregation
+        filtered_df['date'] = filtered_df['timestamp'].dt.date
+        
+        # Aggregate data daily
+        if dimension in ['clusterName', 'region', 'instance_type', 'metric_name', 'resource_type', 'volume_type', 'unit']:
+            # Categorical dimension - group by date and dimension
+            daily_agg = filtered_df.groupby(['date', dimension])[value_column].sum().reset_index()
+            
+            # Get summary statistics
+            total_value = filtered_df[value_column].sum()
+            unique_dimensions = filtered_df[dimension].nunique()
+            date_range = f"{filtered_df['date'].min()} to {filtered_df['date'].max()}"
+            
+            result_lines = [
+                f"Daily {dimension.title().replace('_', ' ')} Analytics",
+                f"Period: {date_range}",
+                f"Total {value_column.replace('_', ' ').title()}: {total_value:,.2f}",
+                f"Unique {dimension.replace('_', ' ').title()} Values: {unique_dimensions}",
+                "",
+                f"Top {dimension.replace('_', ' ').title()} by Total {value_column.replace('_', ' ').title()}:"
+            ]
+            
+            # Show top values
+            top_values = filtered_df.groupby(dimension)[value_column].sum().sort_values(ascending=False).head(10)
+            for dim_val, total_val in top_values.items():
+                percentage = (total_val / total_value) * 100 if total_value > 0 else 0
+                result_lines.append(f"  • {dim_val}: {total_val:,.2f} ({percentage:.1f}%)")
+            
+        else:
+            # Numeric aggregation - just sum by date
+            daily_totals = filtered_df.groupby('date')[value_column].sum().reset_index()
+            total_value = filtered_df[value_column].sum()
+            avg_daily = daily_totals[value_column].mean()
+            date_range = f"{daily_totals['date'].min()} to {daily_totals['date'].max()}"
+            
+            result_lines = [
+                f"Daily {value_column.replace('_', ' ').title()} Analytics",
+                f"Period: {date_range}",
+                f"Total {value_column.replace('_', ' ').title()}: {total_value:,.2f}",
+                f"Average Daily {value_column.replace('_', ' ').title()}: {avg_daily:,.2f}",
+                f"Number of Days: {len(daily_totals)}"
+            ]
+        
+        # Generate plot
+        plot = _create_generic_dimension_plot(filtered_df, dimension, value_column)
+        plot_json = ""
+        plot_info = ""
+        
+        if plot:
+            compact_json = json.dumps(plot, separators=(',', ':'))
+            plot_json = f"\n\n[PLOT_DATA]{compact_json}[/PLOT_DATA]"
+            plot_info = f"\n\n📊 A daily trends chart for {dimension.replace('_', ' ')} has been generated and will be displayed below."
+        
+        result = "\n".join(result_lines) + plot_info + plot_json
+        agent_logger.info(f"Successfully analyzed dimension '{dimension}' with value '{value_column}'")
+        return result
+        
+    except Exception as e:
+        error_msg = f"Error analyzing cluster dimension: {str(e)}"
+        agent_logger.log_error(e, {"context": "cluster_dimension_analytics"})
+        return error_msg
+
+
 # Create LangChain tools
 aws_last_month_costs_tool = Tool(
     name="get_last_month_aws_costs",
@@ -565,9 +865,16 @@ usage_report_tool = Tool(
     func=_get_usage_report
 )
 
+cluster_dimension_analytics_tool = Tool(
+    name="get_cluster_dimension_analytics",
+    description="Generic tool that reads the cluster resources CSV file, aggregates daily data for any specified dimension(s) and plots it. Use this when the user asks to analyze, aggregate, or plot any dimension from the cluster data (e.g., 'plot resource_type daily', 'show instance_type trends', 'aggregate price_per_day by resource_type', 'analyze metric_name', 'plot size_gb by volume_type'). Supports all available dimensions: clusterName, region, instance_type, metric_name, resource_type, volume_type, etc.",
+    func=_get_cluster_dimension_analytics
+)
+
 # Export available tools
 available_tools = [
     aws_last_month_costs_tool,
     aws_current_month_costs_tool,
-    usage_report_tool
+    usage_report_tool,
+    cluster_dimension_analytics_tool
 ]
