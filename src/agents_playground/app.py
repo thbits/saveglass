@@ -19,7 +19,9 @@ from agents_playground.agent import ChatAgent
 from agents_playground.utils import generate_sample_data, create_plot
 from agents_playground.config_loader import config_loader
 from agents_playground.logger import agent_logger
-from agents_playground.session_storage import session_storage
+from agents_playground.session_storage import session_storage, get_user_session_storage
+from agents_playground.auth import show_login_page, check_authentication, logout, get_current_user, get_user_info, user_manager
+from agents_playground.admin import show_user_management, show_admin_menu
 from agents_playground.langchain_tools import available_tools
 from langchain.schema import HumanMessage, AIMessage
 
@@ -57,8 +59,10 @@ def save_current_session():
             if session["id"] == current_id:
                 session["messages"] = st.session_state.messages.copy()
                 session["last_updated"] = datetime.now()
-                # Persist the updated session to disk
-                session_storage.save_single_session(session)
+                # Persist the updated session to disk using user-specific storage
+                username = get_current_user()
+                user_session_storage = get_user_session_storage(username)
+                user_session_storage.save_single_session(session)
                 break
 
 def load_session(session_id: str):
@@ -100,8 +104,10 @@ def initialize_session_state():
     try:
         # Initialize chat sessions storage - load from persistent storage
         if "chat_sessions" not in st.session_state:
-            # Load existing sessions from persistent storage
-            persisted_sessions = session_storage.load_sessions()
+            # Load existing sessions from user-specific persistent storage
+            username = get_current_user()
+            user_session_storage = get_user_session_storage(username)
+            persisted_sessions = user_session_storage.load_sessions()
             st.session_state.chat_sessions = persisted_sessions
         
         # Initialize current session
@@ -117,8 +123,10 @@ def initialize_session_state():
                 st.session_state.chat_sessions.append(new_session)
                 st.session_state.current_session_id = new_session["id"]
                 st.session_state.messages = []
-                # Persist the new session immediately
-                session_storage.save_single_session(new_session)
+                # Persist the new session immediately using user-specific storage
+                username = get_current_user()
+                user_session_storage = get_user_session_storage(username)
+                user_session_storage.save_single_session(new_session)
         
         # Initialize cluster memory for session
         if "current_cluster" not in st.session_state:
@@ -230,10 +238,27 @@ def display_chat_message(role: str, content: str, plots: list = None):
 
 def main():
     """Main application function."""
+    # Check authentication first
+    if not check_authentication():
+        show_login_page()
+        return
+    
+    # Check if admin panel should be shown
+    if st.session_state.get("show_admin_panel", False):
+        show_user_management()
+        return
+    
     initialize_session_state()
     
     # Sidebar for configuration
     with st.sidebar:
+        # User info and logout
+        user_info = get_user_info()
+        if user_info:
+            st.markdown(f"**Welcome, {user_info['username']}!**")
+            if st.button("🚪 Logout", use_container_width=True):
+                logout()
+            st.divider()
         
         # Chat Sessions History
         st.subheader("💬 Chat Sessions")
@@ -246,8 +271,10 @@ def main():
             st.session_state.current_session_id = new_session["id"]
             st.session_state.messages = []
             st.session_state.agent.clear_history()
-            # Persist the new session immediately
-            session_storage.save_single_session(new_session)
+            # Persist the new session immediately using user-specific storage
+            username = get_current_user()
+            user_session_storage = get_user_session_storage(username)
+            user_session_storage.save_single_session(new_session)
             st.rerun()
         
         # Display existing sessions
@@ -392,6 +419,9 @@ def main():
         
         # Display current theme
         st.caption(f"Current theme: {current_theme.title()}")
+        
+        # Admin menu (if user is admin)
+        show_admin_menu()
     
     # Main chat interface with logo
     # Create a container for the logo and title with better spacing

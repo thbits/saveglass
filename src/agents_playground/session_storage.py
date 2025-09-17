@@ -12,8 +12,8 @@ from agents_playground.logger import agent_logger
 class SessionStorage:
     """Handle persistent storage of chat sessions."""
     
-    def __init__(self, storage_dir: str = None):
-        """Initialize session storage with specified directory."""
+    def __init__(self, storage_dir: str = None, username: str = None):
+        """Initialize session storage with specified directory and username."""
         if storage_dir is None:
             # Use a .sessions directory in the project root
             project_root = Path(__file__).parent.parent.parent
@@ -21,7 +21,13 @@ class SessionStorage:
         
         self.storage_dir = Path(storage_dir)
         self.storage_dir.mkdir(exist_ok=True)
-        self.sessions_file = self.storage_dir / "chat_sessions.json"
+        
+        # Create user-specific session file
+        if username:
+            self.sessions_file = self.storage_dir / f"chat_sessions_{username}.json"
+        else:
+            # Fallback to generic sessions file for backward compatibility
+            self.sessions_file = self.storage_dir / "chat_sessions.json"
         
     def _serialize_session(self, session: Dict[str, Any]) -> Dict[str, Any]:
         """Serialize session data for JSON storage."""
@@ -166,5 +172,10 @@ class SessionStorage:
             return {"error": str(e)}
 
 
-# Global session storage instance
+def get_user_session_storage(username: str = None) -> SessionStorage:
+    """Get session storage instance for a specific user."""
+    return SessionStorage(username=username)
+
+
+# Global session storage instance (for backward compatibility)
 session_storage = SessionStorage()
