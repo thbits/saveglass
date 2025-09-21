@@ -25,8 +25,8 @@ COPY src/ ./src/
 COPY resources/ ./resources/
 
 # Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -e .
+RUN pip install --upgrade pip && \
+    pip install -e .
 
 # Create a non-root user for security
 RUN useradd --create-home --shell /bin/bash app && \

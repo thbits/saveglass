@@ -710,6 +710,572 @@ def _create_generic_dimension_plot(df: pd.DataFrame, dimension: str, value_colum
         return None
 
 
+def _create_eks_clusters_plot(df: pd.DataFrame, plot_type: str = "cost") -> Optional[dict]:
+    """
+    Create a plot for EKS clusters data visualization.
+    
+    Args:
+        df: DataFrame containing EKS clusters data
+        plot_type: Type of plot ('cost', 'timeline', or 'comparison')
+    
+    Returns:
+        Minimal plot data dictionary for efficient transmission
+    """
+    if df.empty:
+        return None
+    
+    try:
+        if plot_type == "cost":
+            # Group by cluster and sum daily costs
+            cost_summary = df.groupby('cluster_name')['price_per_day'].sum().sort_values(ascending=False)
+            
+            plot_data = {
+                "data": [{
+                    "type": "bar",
+                    "x": [str(x) for x in cost_summary.index.tolist()],
+                    "y": [float(y) for y in cost_summary.values.tolist()],
+                    "marker": {
+                        "color": "steelblue"
+                    }
+                }],
+                "layout": {
+                    "title": "EKS Cluster Costs (Total)",
+                    "xaxis": {
+                        "title": "Cluster Name",
+                        "tickangle": -45
+                    },
+                    "yaxis": {
+                        "title": "Total Cost (USD/day)",
+                        "tickformat": "$,.2f"
+                    },
+                    "height": 500,
+                    "showlegend": False
+                }
+            }
+        elif plot_type == "timeline":
+            # Timeline of costs over time
+            df['date'] = pd.to_datetime(df['timestamp']).dt.date
+            timeline_data = df.groupby(['date', 'cluster_name'])['price_per_day'].sum().reset_index()
+            
+            plot_data = {
+                "data": [],
+                "layout": {
+                    "title": "EKS Cluster Costs Over Time",
+                    "xaxis": {"title": "Date"},
+                    "yaxis": {"title": "Daily Cost (USD)", "tickformat": "$,.2f"},
+                    "height": 500
+                }
+            }
+            
+            # Add trace for each cluster
+            colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray']
+            for i, cluster in enumerate(timeline_data['cluster_name'].unique()):
+                cluster_data = timeline_data[timeline_data['cluster_name'] == cluster]
+                plot_data["data"].append({
+                    "type": "scatter",
+                    "mode": "lines+markers",
+                    "x": [str(date) for date in cluster_data['date']],
+                    "y": [float(y) for y in cluster_data['price_per_day'].tolist()],
+                    "name": str(cluster),
+                    "marker": {"color": colors[i % len(colors)]},
+                    "line": {"color": colors[i % len(colors)]}
+                })
+        else:  # comparison
+            # Compare clusters by region and version
+            comparison_data = df.groupby(['cluster_region', 'cluster_version'])['price_per_day'].sum().reset_index()
+            
+            plot_data = {
+                "data": [{
+                    "type": "scatter",
+                    "mode": "markers",
+                    "x": [str(x) for x in comparison_data['cluster_region'].tolist()],
+                    "y": [str(y) for y in comparison_data['cluster_version'].tolist()],
+                    "marker": {
+                        "size": [float(s) for s in comparison_data['price_per_day'].tolist()],
+                        "color": [float(c) for c in comparison_data['price_per_day'].tolist()],
+                        "colorscale": "Viridis",
+                        "showscale": True,
+                        "colorbar": {"title": "Cost (USD/day)"}
+                    },
+                    "text": [f"Cost: ${float(cost):.2f}/day" for cost in comparison_data['price_per_day']],
+                    "hovertemplate": "Region: %{x}<br>Version: %{y}<br>%{text}<extra></extra>"
+                }],
+                "layout": {
+                    "title": "EKS Clusters: Region vs Version (Size = Cost)",
+                    "xaxis": {"title": "Region"},
+                    "yaxis": {"title": "Kubernetes Version"},
+                    "height": 500,
+                    "showlegend": False
+                }
+            }
+        
+        return plot_data
+        
+    except Exception as e:
+        agent_logger.log_error(e, {"context": "eks_clusters_plot_creation", "plot_type": plot_type})
+        return None
+
+
+def _create_ebs_volumes_plot(df: pd.DataFrame, plot_type: str = "cost") -> Optional[dict]:
+    """
+    Create a plot for EBS volumes data visualization.
+    
+    Args:
+        df: DataFrame containing EBS volumes data
+        plot_type: Type of plot ('cost', 'size', 'type_comparison', or 'cost_per_gb')
+    
+    Returns:
+        Minimal plot data dictionary for efficient transmission
+    """
+    if df.empty:
+        return None
+    
+    try:
+        if plot_type == "cost":
+            # Top volumes by cost
+            volume_costs = df.groupby('resource_id')['price_per_day'].sum().sort_values(ascending=False).head(15)
+            
+            plot_data = {
+                "data": [{
+                    "type": "bar",
+                    "x": [str(x) for x in volume_costs.index.tolist()],
+                    "y": [float(y) for y in volume_costs.values.tolist()],
+                    "marker": {
+                        "color": "steelblue"
+                    }
+                }],
+                "layout": {
+                    "title": "Top 15 EBS Volumes by Daily Cost",
+                    "xaxis": {
+                        "title": "Volume ID",
+                        "tickangle": -45
+                    },
+                    "yaxis": {
+                        "title": "Daily Cost (USD)",
+                        "tickformat": "$,.3f"
+                    },
+                    "height": 500,
+                    "showlegend": False
+                }
+            }
+        elif plot_type == "size":
+            # Volume size distribution
+            size_bins = [0, 50, 100, 200, 500, 1000, float('inf')]
+            size_labels = ['0-50GB', '50-100GB', '100-200GB', '200-500GB', '500GB-1TB', '1TB+']
+            df['size_category'] = pd.cut(df['size_gb'], bins=size_bins, labels=size_labels, right=False)
+            size_distribution = df['size_category'].value_counts().sort_index()
+            
+            plot_data = {
+                "data": [{
+                    "type": "bar",
+                    "x": [str(x) for x in size_distribution.index.tolist()],
+                    "y": [int(y) for y in size_distribution.values.tolist()],
+                    "marker": {
+                        "color": "green"
+                    }
+                }],
+                "layout": {
+                    "title": "EBS Volume Size Distribution",
+                    "xaxis": {
+                        "title": "Size Category"
+                    },
+                    "yaxis": {
+                        "title": "Number of Volumes"
+                    },
+                    "height": 500,
+                    "showlegend": False
+                }
+            }
+        elif plot_type == "type_comparison":
+            # Compare volume types by cost and count
+            type_summary = df.groupby('volume_type').agg({
+                'price_per_day': 'sum',
+                'resource_id': 'nunique'
+            }).reset_index()
+            
+            plot_data = {
+                "data": [{
+                    "type": "scatter",
+                    "mode": "markers",
+                    "x": [int(x) for x in type_summary['resource_id'].tolist()],
+                    "y": [float(y) for y in type_summary['price_per_day'].tolist()],
+                    "marker": {
+                        "size": [float(s) * 20 for s in type_summary['price_per_day'].tolist()],
+                        "color": ['blue', 'red', 'green', 'orange', 'purple'][:len(type_summary)],
+                        "opacity": 0.7
+                    },
+                    "text": [str(t) for t in type_summary['volume_type'].tolist()],
+                    "hovertemplate": "Type: %{text}<br>Volume Count: %{x}<br>Total Cost: $%{y:.2f}<extra></extra>"
+                }],
+                "layout": {
+                    "title": "EBS Volume Types: Count vs Total Cost",
+                    "xaxis": {"title": "Number of Volumes"},
+                    "yaxis": {"title": "Total Daily Cost (USD)", "tickformat": "$,.2f"},
+                    "height": 500,
+                    "showlegend": False
+                }
+            }
+        else:  # cost_per_gb
+            # Cost per GB analysis by volume type
+            df['cost_per_gb'] = df['price_per_day'] / df['size_gb']
+            cost_per_gb_by_type = df.groupby('volume_type')['cost_per_gb'].mean().sort_values(ascending=False)
+            
+            plot_data = {
+                "data": [{
+                    "type": "bar",
+                    "x": [str(x) for x in cost_per_gb_by_type.index.tolist()],
+                    "y": [float(y) for y in cost_per_gb_by_type.values.tolist()],
+                    "marker": {
+                        "color": "orange"
+                    }
+                }],
+                "layout": {
+                    "title": "Average Cost per GB by Volume Type",
+                    "xaxis": {
+                        "title": "Volume Type"
+                    },
+                    "yaxis": {
+                        "title": "Cost per GB (USD/day)",
+                        "tickformat": "$,.4f"
+                    },
+                    "height": 500,
+                    "showlegend": False
+                }
+            }
+        
+        return plot_data
+        
+    except Exception as e:
+        agent_logger.log_error(e, {"context": "ebs_volumes_plot_creation", "plot_type": plot_type})
+        return None
+
+
+def _get_ebs_volumes_analytics(query: str = "") -> str:
+    """
+    Analyze EBS volumes data from the CSV file. Provides information about volume costs,
+    sizes, types, and efficiency metrics. Supports various query types like cost analysis,
+    volume comparisons, and size distribution analysis.
+    
+    Args:
+        query: User query string about EBS volumes
+    
+    Returns:
+        Formatted string with EBS volumes analytics and plot data
+    """
+    try:
+        # Construct path to the CSV file
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        csv_path = os.path.join(project_root, "resources", "data", "ebs_volumes.csv")
+        
+        if not os.path.exists(csv_path):
+            return f"EBS volumes data file not found: {csv_path}"
+        
+        # Read CSV data
+        df = pd.read_csv(csv_path)
+        agent_logger.info(f"Loaded EBS volumes data with {len(df)} records")
+        
+        if df.empty:
+            return "No EBS volumes data found in the file."
+        
+        # Clean up the data - remove rows where resource_id (volume ID) is NaN or empty
+        initial_count = len(df)
+        
+        # Check if resource_id column exists (this contains the actual volume IDs)
+        if 'resource_id' not in df.columns:
+            return "Error: 'resource_id' column not found in EBS volumes data."
+        
+        # Remove NaN values from resource_id (which contains the volume IDs)
+        df = df.dropna(subset=['resource_id'])
+        
+        # Remove empty strings
+        if df['resource_id'].dtype == 'object':
+            df = df[df['resource_id'].str.strip() != '']
+        
+        agent_logger.info(f"After cleaning: {len(df)} records (removed {initial_count - len(df)} empty rows)")
+        
+        if df.empty:
+            return f"No valid EBS volumes data found after cleaning. Original count: {initial_count}"
+        
+        # Convert timestamp to datetime
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df['date'] = df['timestamp'].dt.date
+        
+        # Calculate cost per GB
+        df['cost_per_gb'] = df['price_per_day'] / df['size_gb']
+        
+        # Analyze query to determine what type of analysis is needed
+        query_lower = query.lower()
+        
+        # Determine plot type based on query
+        plot_type = "cost"  # default
+        if any(word in query_lower for word in ['size', 'distribution', 'capacity']):
+            plot_type = "size"
+        elif any(word in query_lower for word in ['type', 'compare', 'comparison', 'gp3', 'sc1', 'st1']):
+            plot_type = "type_comparison"
+        elif any(word in query_lower for word in ['efficiency', 'cost per gb', 'cost/gb', 'expensive']):
+            plot_type = "cost_per_gb"
+        
+        # Check for specific volume ID in query
+        volume_filter = None
+        for volume_id in df['resource_id'].unique():
+            if str(volume_id).lower() in query_lower:
+                volume_filter = str(volume_id)
+                break
+        
+        # Filter data if specific volume requested
+        filtered_df = df
+        if volume_filter:
+            filtered_df = df[df['resource_id'] == volume_filter]
+            if filtered_df.empty:
+                return f"No data found for volume '{volume_filter}'"
+        
+        # Generate summary statistics (convert numpy types to Python native types)
+        total_volumes = int(filtered_df['resource_id'].nunique())
+        total_cost = float(filtered_df['price_per_day'].sum())
+        total_storage = float(filtered_df['size_gb'].sum())
+        avg_cost_per_volume = total_cost / total_volumes if total_volumes > 0 else 0
+        avg_cost_per_gb = float(filtered_df['cost_per_gb'].mean())
+        date_range = f"{filtered_df['date'].min()} to {filtered_df['date'].max()}"
+        
+        # Get unique volume types
+        volume_types = sorted([str(vt) for vt in filtered_df['volume_type'].unique()])
+        
+        # Build result
+        result_lines = [
+            "EBS Volumes Analytics Report",
+            f"Analysis Period: {date_range}",
+            f"Total Volumes: {total_volumes:,}",
+            f"Total Storage: {total_storage:,.0f} GB ({total_storage/1024:.1f} TB)",
+            f"Total Daily Cost: ${total_cost:.2f}",
+            f"Average Cost per Volume: ${avg_cost_per_volume:.3f}/day",
+            f"Average Cost per GB: ${avg_cost_per_gb:.4f}/day",
+            "",
+            f"Volume Types: {', '.join(volume_types)}",
+            ""
+        ]
+        
+        # Add volume-specific details
+        if volume_filter:
+            volume_data = filtered_df[filtered_df['resource_id'] == volume_filter].iloc[0]
+            result_lines.extend([
+                f"Volume Details for '{volume_filter}':",
+                f"  • Size: {float(volume_data['size_gb']):.0f} GB",
+                f"  • Type: {str(volume_data['volume_type'])}",
+                f"  • Daily Cost: ${float(volume_data['price_per_day']):.3f}",
+                f"  • Cost per GB: ${float(volume_data['cost_per_gb']):.4f}/day",
+                ""
+            ])
+        else:
+            # Volume type breakdown
+            result_lines.append("Cost Breakdown by Volume Type:")
+            type_summary = filtered_df.groupby('volume_type').agg({
+                'price_per_day': 'sum',
+                'resource_id': 'nunique',
+                'size_gb': 'sum',
+                'cost_per_gb': 'mean'
+            }).sort_values('price_per_day', ascending=False)
+            
+            for vol_type, row in type_summary.iterrows():
+                cost = float(row['price_per_day'])
+                count = int(row['resource_id'])
+                storage = float(row['size_gb'])
+                cost_per_gb = float(row['cost_per_gb'])
+                percentage = (cost / total_cost) * 100 if total_cost > 0 else 0
+                result_lines.append(
+                    f"  • {str(vol_type)}: {count} volumes, {storage:,.0f} GB, "
+                    f"${cost:.2f}/day ({percentage:.1f}%), ${cost_per_gb:.4f}/GB"
+                )
+            
+            result_lines.append("")
+            
+            # Top expensive volumes
+            result_lines.append("Top 5 Most Expensive Volumes:")
+            top_volumes = filtered_df.nlargest(5, 'price_per_day')
+            for _, vol in top_volumes.iterrows():
+                result_lines.append(
+                    f"  • {str(vol['resource_id'])}: {float(vol['size_gb']):.0f} GB "
+                    f"({str(vol['volume_type'])}), ${float(vol['price_per_day']):.3f}/day"
+                )
+            
+            result_lines.append("")
+        
+        # Add insights
+        if len(filtered_df) > 1:
+            # Cost efficiency insights
+            most_efficient_type = filtered_df.groupby('volume_type')['cost_per_gb'].mean().idxmin()
+            least_efficient_type = filtered_df.groupby('volume_type')['cost_per_gb'].mean().idxmax()
+            
+            result_lines.extend([
+                "Efficiency Insights:",
+                f"  • Most cost-efficient type: {str(most_efficient_type)}",
+                f"  • Least cost-efficient type: {str(least_efficient_type)}",
+                ""
+            ])
+        
+        # Generate plot
+        plot = _create_ebs_volumes_plot(filtered_df, plot_type)
+        plot_json = ""
+        plot_info = ""
+        
+        if plot:
+            compact_json = json.dumps(plot, separators=(',', ':'))
+            plot_json = f"\n\n[PLOT_DATA]{compact_json}[/PLOT_DATA]"
+            plot_info = f"\n\n📊 An EBS volumes {plot_type} chart has been generated and will be displayed below."
+        
+        result = "\n".join(result_lines) + plot_info + plot_json
+        agent_logger.info(f"Successfully analyzed EBS volumes data with {plot_type} visualization")
+        return result
+        
+    except Exception as e:
+        error_msg = f"Error analyzing EBS volumes: {str(e)}"
+        agent_logger.log_error(e, {"context": "ebs_volumes_analytics"})
+        return error_msg
+
+
+def _get_eks_clusters_analytics(query: str = "") -> str:
+    """
+    Analyze EKS clusters data from the CSV file. Provides information about cluster costs,
+    regions, versions, and trends. Supports various query types like cost analysis,
+    cluster comparisons, and timeline views.
+    
+    Args:
+        query: User query string about EKS clusters
+    
+    Returns:
+        Formatted string with EKS clusters analytics and plot data
+    """
+    try:
+        # Construct path to the CSV file
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        csv_path = os.path.join(project_root, "resources", "data", "eks_clusters.csv")
+        
+        if not os.path.exists(csv_path):
+            return f"EKS clusters data file not found: {csv_path}"
+        
+        # Read CSV data
+        df = pd.read_csv(csv_path)
+        agent_logger.info(f"Loaded EKS clusters data with {len(df)} records")
+        
+        if df.empty:
+            return "No EKS clusters data found in the file."
+        
+        # Clean up the data - remove any empty rows
+        df = df.dropna(subset=['cluster_name'])
+        
+        if df.empty:
+            return "No valid EKS clusters data found in the file after cleaning."
+        
+        # Convert timestamp to datetime
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        df['date'] = df['timestamp'].dt.date
+        
+        # Analyze query to determine what type of analysis is needed
+        query_lower = query.lower()
+        
+        # Determine plot type based on query
+        plot_type = "cost"  # default
+        if any(word in query_lower for word in ['timeline', 'trend', 'over time', 'history']):
+            plot_type = "timeline"
+        elif any(word in query_lower for word in ['compare', 'comparison', 'region', 'version']):
+            plot_type = "comparison"
+        
+        # Check for specific cluster name in query
+        cluster_filter = None
+        for cluster_name in df['cluster_name'].unique():
+            if str(cluster_name).lower() in query_lower:
+                cluster_filter = str(cluster_name)
+                break
+        
+        # Filter data if specific cluster requested
+        filtered_df = df
+        if cluster_filter:
+            filtered_df = df[df['cluster_name'] == cluster_filter]
+            if filtered_df.empty:
+                return f"No data found for cluster '{cluster_filter}'"
+        
+        # Generate summary statistics (convert numpy types to Python native types)
+        total_clusters = int(filtered_df['cluster_name'].nunique())
+        total_cost = float(filtered_df['price_per_day'].sum())
+        avg_daily_cost = float(filtered_df.groupby('cluster_name')['price_per_day'].mean().mean())
+        date_range = f"{filtered_df['date'].min()} to {filtered_df['date'].max()}"
+        
+        # Get unique regions and versions (convert to Python strings)
+        regions = sorted([str(r) for r in filtered_df['cluster_region'].unique()])
+        versions = sorted([str(v) for v in filtered_df['cluster_version'].unique()])
+        
+        # Build result
+        result_lines = [
+            "EKS Clusters Analytics Report",
+            f"Analysis Period: {date_range}",
+            f"Total Clusters: {total_clusters}",
+            f"Total Daily Cost: ${total_cost:.2f}",
+            f"Average Daily Cost per Cluster: ${avg_daily_cost:.2f}",
+            "",
+            f"Regions: {', '.join(regions)}",
+            f"Kubernetes Versions: {', '.join(versions)}",
+            ""
+        ]
+        
+        # Add cluster-specific details
+        if cluster_filter:
+            cluster_data = filtered_df[filtered_df['cluster_name'] == cluster_filter].iloc[0]
+            result_lines.extend([
+                f"Cluster Details for '{cluster_filter}':",
+                f"  • Region: {str(cluster_data['cluster_region'])}",
+                f"  • Kubernetes Version: {str(cluster_data['cluster_version'])}",
+                f"  • Daily Cost: ${float(cluster_data['price_per_day']):.2f}",
+                ""
+            ])
+        else:
+            result_lines.append("Cluster Cost Breakdown:")
+            cluster_costs = filtered_df.groupby('cluster_name')['price_per_day'].sum().sort_values(ascending=False)
+            for cluster_name, cost in cluster_costs.head(10).items():
+                percentage = (float(cost) / total_cost) * 100 if total_cost > 0 else 0
+                result_lines.append(f"  • {str(cluster_name)}: ${float(cost):.2f}/day ({percentage:.1f}%)")
+            
+            if len(cluster_costs) > 10:
+                result_lines.append(f"  ... and {len(cluster_costs) - 10} more clusters")
+            result_lines.append("")
+        
+        # Add insights
+        if len(filtered_df) > 1:
+            latest_data = filtered_df[filtered_df['date'] == filtered_df['date'].max()]
+            previous_data = filtered_df[filtered_df['date'] == filtered_df['date'].unique()[-2]] if len(filtered_df['date'].unique()) > 1 else latest_data
+            
+            latest_cost = float(latest_data['price_per_day'].sum())
+            previous_cost = float(previous_data['price_per_day'].sum())
+            cost_change = latest_cost - previous_cost
+            cost_change_pct = (cost_change / previous_cost * 100) if previous_cost != 0 else 0
+            
+            result_lines.extend([
+                "Recent Trends:",
+                f"  • Latest Daily Cost: ${latest_cost:.2f}",
+                f"  • Cost Change: ${cost_change:+.2f} ({cost_change_pct:+.1f}%)",
+                ""
+            ])
+        
+        # Generate plot
+        plot = _create_eks_clusters_plot(filtered_df, plot_type)
+        plot_json = ""
+        plot_info = ""
+        
+        if plot:
+            compact_json = json.dumps(plot, separators=(',', ':'))
+            plot_json = f"\n\n[PLOT_DATA]{compact_json}[/PLOT_DATA]"
+            plot_info = f"\n\n📊 An EKS clusters {plot_type} chart has been generated and will be displayed below."
+        
+        result = "\n".join(result_lines) + plot_info + plot_json
+        agent_logger.info(f"Successfully analyzed EKS clusters data with {plot_type} visualization")
+        return result
+        
+    except Exception as e:
+        error_msg = f"Error analyzing EKS clusters: {str(e)}"
+        agent_logger.log_error(e, {"context": "eks_clusters_analytics"})
+        return error_msg
+
+
 def _get_cluster_dimension_analytics(query: str = "") -> str:
     """
     Generic tool that reads the CSV file, aggregates daily data for any specified dimension(s) and plots it.
@@ -871,10 +1437,24 @@ cluster_dimension_analytics_tool = Tool(
     func=_get_cluster_dimension_analytics
 )
 
+eks_clusters_analytics_tool = Tool(
+    name="get_eks_clusters_analytics",
+    description="Analyze EKS clusters data including costs, regions, versions, and trends. Use this when the user asks about EKS clusters, cluster costs, cluster comparisons, or wants to see cluster analytics. Supports queries like 'show EKS cluster costs', 'compare clusters by region', 'EKS cluster timeline', 'cluster cost breakdown', or questions about specific clusters like 'dev-mt-eks-core'.",
+    func=_get_eks_clusters_analytics
+)
+
+ebs_volumes_analytics_tool = Tool(
+    name="get_ebs_volumes_analytics",
+    description="Analyze EBS volumes data including costs, sizes, types, and efficiency metrics. Use this when the user asks about EBS volumes, storage costs, volume types (gp3, sc1, st1), volume sizes, cost per GB analysis, or storage efficiency. Supports queries like 'show EBS volume costs', 'compare volume types', 'most expensive volumes', 'volume size distribution', 'cost per GB analysis', or questions about specific volumes.",
+    func=_get_ebs_volumes_analytics
+)
+
 # Export available tools
 available_tools = [
     aws_last_month_costs_tool,
     aws_current_month_costs_tool,
     usage_report_tool,
-    cluster_dimension_analytics_tool
+    cluster_dimension_analytics_tool,
+    eks_clusters_analytics_tool,
+    ebs_volumes_analytics_tool
 ]

@@ -1,0 +1,9 @@
+cluster_name,cluster_region,cluster_version,instance_type,metric_name,price_per_day,resource_id,resource_type,size_gb,timestamp,unit,value,volume_id,volume_type
+dev-mt-eks-core,eu-west-1,1.32,,cluster_cost,2.4000000000000004,dev-mt-eks-core,eks_cluster,,2025-09-10T12:25:00.619673,USD/day,2.4000000000000004,,
+dev-mt-eks-core,eu-west-1,1.32,,cluster_cost,2.4000000000000004,dev-mt-eks-core,eks_cluster,,2025-09-11T12:25:00.619673,USD/day,2.4000000000000004,,
+dev-mt-eks-core,eu-west-1,1.32,,cluster_cost,2.4000000000000004,dev-mt-eks-core,eks_cluster,,2025-09-12T12:25:00.619673,USD/day,2.4000000000000004,,
+dev-mt-eks-core,eu-west-1,1.32,,cluster_cost,2.4000000000000004,dev-mt-eks-core,eks_cluster,,2025-09-13T12:25:00.619673,USD/day,2.4000000000000004,,
+dev-mt-eks-core,eu-west-1,1.32,,cluster_cost,2.4000000000000004,dev-mt-eks-core,eks_cluster,,2025-09-14T12:25:00.619673,USD/day,2.4000000000000004,,
+dev-mt-eks-core,eu-west-1,1.32,,cluster_cost,2.4000000000000004,dev-mt-eks-core,eks_cluster,,2025-09-15T12:25:00.619673,USD/day,2.4000000000000004,,
+dev-mt-eks-core,eu-west-1,1.32,,cluster_cost,2.4000000000000004,dev-mt-eks-core,eks_cluster,,2025-09-16T12:25:00.619673,USD/day,2.4000000000000004,,
+dev-mt-eks-core,eu-west-1,1.32,,cluster_cost,2.4000000000000004,dev-mt-eks-core,eks_cluster,,2025-09-17T12:25:00.619673,USD/day,2.4000000000000004,,

@@ -335,8 +335,8 @@ def show_login_page():
         st.markdown("""
         <div class="info-message">
             <strong>Default Login:</strong><br>
-            Username: yaronG<br>
-            Password: ysyghb
+            Username: example<br>
+            Password: example123
         </div>
         """, unsafe_allow_html=True)
         
